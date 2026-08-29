@@ -4,8 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "seed": "tsx src/seed.ts",
-    "mcp": "tsx src/mcp.ts"
+    "seed": "tsx src/seed.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
