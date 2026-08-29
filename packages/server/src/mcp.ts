@@ -110,7 +110,9 @@ export function startMcpServer(port = 8791) {
       res.writeHead(405).end();
       return;
     }
-    // Stateless: fresh server+transport per request.
+    // Stateless mode: fresh server+transport per request, per the SDK's own
+    // pattern - Protocol.connect() throws if a server instance is reused
+    // across transports, so a hoisted singleton would break concurrent calls.
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => transport.close());
     await buildMcp().connect(transport);
