@@ -62,9 +62,18 @@ export async function pollOnce() {
       updated_at: s.updatedAt,
       created_by: s.createdBy,
     });
-    const turns = await client.sessions.listTurns(s.id);
-    for await (const t of turns) {
-      await ingestTurn(s.id, t);
+    // Isolate failures per session/turn so one bad session can't starve the rest.
+    try {
+      const turns = await client.sessions.listTurns(s.id);
+      for await (const t of turns) {
+        try {
+          await ingestTurn(s.id, t);
+        } catch (err) {
+          console.error(`collector: turn ${t.id}:`, (err as Error).message);
+        }
+      }
+    } catch (err) {
+      console.error(`collector: session ${s.id}:`, (err as Error).message);
     }
   }
 }
