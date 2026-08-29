@@ -26,6 +26,7 @@ export function App() {
     () => new URLSearchParams(location.search).get("session"),
   );
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const setSelected = (id: string | null) => {
     select(id);
@@ -44,9 +45,12 @@ export function App() {
 
   const investigate = async (sessionId?: string) => {
     setBusy(true);
+    setError(null);
     try {
       const { session_id } = await api.investigate(sessionId);
       setSelected(session_id);
+    } catch {
+      setError("Failed to start investigation - is the AgentLens server running?");
     } finally {
       setBusy(false);
     }
@@ -74,6 +78,7 @@ export function App() {
           <Stat label="tool calls" value={String(totals.tools)} />
           <Stat label="tokens" value={fmtTokens(totals.tokens)} />
         </div>
+        {error && <span className="errMsg">{error}</span>}
         <button className="primary" disabled={busy} onClick={() => investigate()}>
           {busy ? "starting..." : "Investigate fleet"}
         </button>

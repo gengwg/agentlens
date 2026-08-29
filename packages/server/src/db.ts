@@ -67,6 +67,9 @@ export function sessionSummaries() {
       (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.status = 'error') AS error_turns,
       (SELECT MAX(t.status='running') FROM turns t WHERE t.session_id = s.id) AS running,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response') AS tool_calls,
+      -- Known heuristic: TrueForge wraps MCP tool failures as a content string
+      -- starting with {"error". The prefix match (not %error%) keeps sessions
+      -- that merely quote errors in tool output from being flagged.
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response' AND json_extract(e.raw,'$.content') LIKE '{"error"%') AS tool_errors,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'thread.created') AS subagents,
       (SELECT SUM(json_extract(e.raw,'$.usage.inputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS input_tokens,

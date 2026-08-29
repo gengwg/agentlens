@@ -53,6 +53,8 @@ td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: #1c2129; }
 
+.errMsg { color: var(--red); font-size: 12px; }
+
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
 .dot.done { background: var(--green); }
 .dot.error { background: var(--red); }
