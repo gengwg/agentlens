@@ -34,3 +34,25 @@ Surprises worth blogging:
   at tool payloads, not turn status.
 - TrueForge's local sandbox silently degrades if `socat` is missing (bwrap and
   rg alone aren't enough); one apt install re-enables it.
+
+## 2026-08-29 - Review rounds and submission
+
+Shipped: demo video in docs/, Medium post, LinkedIn post, form submitted
+(tracks: TrueForge, UI, LinkedIn post).
+
+Then three review rounds hardened the code:
+- Round 1 (external review): two real bugs fixed - the SSE live-tail tore down
+  and reconnected every 2.5s because the React effect was keyed on the trace
+  object the poller replaced each tick, and one failing session could starve
+  the rest of a collector cycle. Also one crash found in the wild: malformed
+  JSON to the MCP port killed the whole server via unhandled rejection.
+- Several findings were declined as wrong: hoisting a singleton McpServer
+  (the SDK throws on transport reuse - the "fix" would break concurrency),
+  adding wildcard CORS to a localhost tool port (a security regression), and
+  removing npm's own allowScripts field.
+- Round 2: event ordering by created_at instead of relying on ULID ids, CORS
+  pinned to the dashboard origin, MCP 400/500 split, keyboard-navigable rows,
+  trace load errors surfaced. Follow-ups bounded the SSE auto-reconnect.
+
+Lesson for the blog: LLM code review found real bugs and confidently proposed
+harmful fixes in the same pass. Triage beats blind application.
