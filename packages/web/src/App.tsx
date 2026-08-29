@@ -145,7 +145,18 @@ function SessionTable({
         </thead>
         <tbody>
           {rows.map((s) => (
-            <tr key={s.id} onClick={() => onSelect(s.id)}>
+            <tr
+              key={s.id}
+              tabIndex={0}
+              className="clickable"
+              onClick={() => onSelect(s.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(s.id);
+                }
+              }}
+            >
               <td>
                 <StatusDot
                   status={
@@ -210,6 +221,7 @@ function TraceView({
   onInvestigate: () => void;
 }) {
   const [trace, setTrace] = useState<Trace | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [live, setLive] = useState<TraceEvent[]>([]);
   const [q, setQ] = useState("");
 
@@ -218,7 +230,16 @@ function TraceView({
 
   useEffect(() => {
     let stop = false;
-    const load = () => api.trace(sessionId).then((t) => !stop && setTrace(t)).catch(() => {});
+    const load = () =>
+      api
+        .trace(sessionId)
+        .then((t) => {
+          if (!stop) {
+            setTrace(t);
+            setLoadError(null);
+          }
+        })
+        .catch(() => !stop && setLoadError("Failed to load this session."));
     load();
     const t = setInterval(load, 2500);
     return () => {
@@ -251,7 +272,11 @@ function TraceView({
       );
       if (raw.type === "turn.done") es.close();
     };
-    es.onerror = () => es.close();
+    // Let the browser's built-in reconnect run on transient errors; only give
+    // up when the connection is permanently closed (e.g. stream ended).
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) es.close();
+    };
     return () => {
       es.close();
       setLive([]);
@@ -279,7 +304,13 @@ function TraceView({
     return m;
   }, [events]);
 
-  if (!trace) return <main className="empty">loading...</main>;
+  if (!trace)
+    return (
+      <main className="empty">
+        {loadError ?? "loading..."}{" "}
+        {loadError && <button onClick={onBack}>&larr; sessions</button>}
+      </main>
+    );
 
   return (
     <main className="traceView">

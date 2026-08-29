@@ -5,7 +5,10 @@ import { client } from "./collector.js";
 import { agentSummaries, db, sessionSummaries, sessionTrace } from "./db.js";
 
 export const app = new Hono();
-app.use("*", cors());
+// Local demo tool: only the dashboard (and same-origin/non-browser clients,
+// which send no Origin) may call the API cross-origin.
+const ALLOWED_ORIGINS = (process.env.AGENTLENS_CORS_ORIGIN ?? "http://localhost:5173").split(",");
+app.use("*", cors({ origin: (o) => (ALLOWED_ORIGINS.includes(o) ? o : null) }));
 
 app.get("/api/agents", (c) => c.json(agentSummaries()));
 app.get("/api/reports", (c) =>
