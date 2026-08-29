@@ -130,7 +130,8 @@ async function main() {
     }),
   );
   const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-  for (const f of failures) console.error("demo run failed:", (f.reason as Error).message);
+  for (const f of failures)
+    console.error("demo run failed:", f.reason instanceof Error ? f.reason.message : String(f.reason));
   if (failures.length) {
     throw new Error(`${failures.length}/${runs.length} demo runs failed`);
   }
