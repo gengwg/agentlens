@@ -68,6 +68,10 @@ view, metrics, or timelines. Existing agent-observability tools (OpenTelemetry
 wrappers, CLI analyzers) are harness-agnostic and miss what the harness knows:
 subagent threads, approval gates, turn states. AgentLens is harness-native.
 
+Future work: an OTLP exporter on the collector, translating the mirrored event
+log into OpenTelemetry GenAI spans so traces land in Tempo/Jaeger alongside
+infra traces. TrueForge emits no telemetry itself, so the exporter belongs here.
+
 ## Links
 
 - Build story: https://gengwg.medium.com/building-agentlens-what-trueforge-doesnt-tell-you-until-you-build-on-it-4173e6f7d6ce
