@@ -79,7 +79,7 @@ function buildMcp() {
     },
     async ({ session_id }) => {
       const events = db
-        .prepare(`SELECT raw FROM events WHERE session_id = ? ORDER BY id`)
+        .prepare(`SELECT raw FROM events WHERE session_id = ? ORDER BY created_at IS NULL, created_at, id`)
         .all(session_id) as { raw: string }[];
       return {
         content: [{ type: "text", text: `[${events.map((e) => e.raw).join(",")}]` }],
@@ -113,17 +113,28 @@ export function startMcpServer(port = 8791) {
     // Stateless mode: fresh server+transport per request, per the SDK's own
     // pattern - Protocol.connect() throws if a server instance is reused
     // across transports, so a hoisted singleton would break concurrent calls.
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on("close", () => transport.close());
+    // Parse the body first: malformed JSON is a client error (400), while
+    // connect/handle failures are server errors (500).
+    let body: unknown;
     try {
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      res.on("close", () => transport.close());
-      await buildMcp().connect(transport);
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk as Buffer);
-      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
+      body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
+    } catch {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "bad request" }));
+      return;
+    }
+    try {
+      await buildMcp().connect(transport);
       await transport.handleRequest(req, res, body);
     } catch (err) {
       console.error("mcp:", (err as Error).message);
-      if (!res.headersSent) res.writeHead(400).end();
+      // Respond instead of dying with an unhandled rejection.
+      if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "internal error" }));
     }
   });
   server.listen(port, () => console.log(`agentlens mcp on http://localhost:${port}/mcp`));

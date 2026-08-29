@@ -116,7 +116,7 @@ async function main() {
     ["flaky-agent", "Look up the current status of order 4711 with your tools."],
     ["flaky-agent", "Fetch the weekly metrics summary using your tools."],
   ];
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     runs.map(async ([agent, content]) => {
       const { data: session } = await client.sessions.create({ agent: { name: agent } });
       const stream = await client.sessions.createTurnStream(session.id, {
@@ -129,6 +129,11 @@ async function main() {
       }
     }),
   );
+  const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+  for (const f of failures) console.error("demo run failed:", (f.reason as Error).message);
+  if (failures.length) {
+    throw new Error(`${failures.length}/${runs.length} demo runs failed`);
+  }
 }
 
 main().catch((err) => {

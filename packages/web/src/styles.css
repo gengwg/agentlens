@@ -50,8 +50,10 @@ main { display: flex; gap: 16px; align-items: flex-start; }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--dim); padding: 8px 12px; border-bottom: 1px solid var(--border); }
 td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
-tbody tr { cursor: pointer; }
-tbody tr:hover { background: #1c2129; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover,
+tbody tr.clickable:focus-visible { background: #1c2129; outline: none; }
+tbody tr.clickable:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 
 .errMsg { color: var(--red); font-size: 12px; }
 
