@@ -57,13 +57,18 @@ How AgentLens uses TrueForge capabilities (filled in as built):
 ## Tools used
 
 - TrueForge (`@truefoundry/trueforge`, `@truefoundry/trueforge-sdk`) - agent harness
-- Qodo - code review on pull requests
 - Node 22+/TypeScript, Hono, better-sqlite3, Vite + React
 
-## Qodo Code Review Evidence
-
-- Representative merged PR: (link after first milestone PR)
-- Findings and responses: (1-2 lines after Qodo review)
-- PR history shows initial and follow-up Qodo reviews.
-
 All changes land through pull requests; no direct pushes to main.
+
+## Related work
+
+TrueForge's bundled UI is a per-session chat interface; it has no cross-session
+view, metrics, or timelines. Existing agent-observability tools (OpenTelemetry
+wrappers, CLI analyzers) are harness-agnostic and miss what the harness knows:
+subagent threads, approval gates, turn states. AgentLens is harness-native.
+
+## Links
+
+- Build story: https://gengwg.medium.com/building-agentlens-what-trueforge-doesnt-tell-you-until-you-build-on-it-4173e6f7d6ce
+- Raw build log: [BUILDLOG.md](BUILDLOG.md)
