@@ -385,6 +385,38 @@ function Timeline({ events }: { events: TraceEvent[] }) {
   );
 }
 
+function ApprovalButtons({
+  sessionId,
+  toolCallId,
+  threadId,
+}: {
+  sessionId: string;
+  toolCallId: string | undefined;
+  threadId: string;
+}) {
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const submit = (allow: boolean) => {
+    setState("sending");
+    api
+      .approve(sessionId, toolCallId, threadId, allow)
+      .then(() => setState("sent"))
+      .catch(() => setState("error"));
+  };
+  return (
+    <div className="approveBtns">
+      <button className="primary" disabled={state !== "idle"} onClick={() => submit(true)}>
+        Allow
+      </button>
+      <button disabled={state !== "idle"} onClick={() => submit(false)}>
+        Deny
+      </button>
+      {state === "sending" && <span className="dim">sending...</span>}
+      {state === "sent" && <span className="dim">submitted</span>}
+      {state === "error" && <span className="errMsg">approval failed</span>}
+    </div>
+  );
+}
+
 function EventRow({
   ev,
   sessionId,
@@ -438,17 +470,11 @@ function EventRow({
           <div>
             Tool <span className="mono">{name}</span> awaits approval
           </div>
-          <div className="approveBtns">
-            <button
-              className="primary"
-              onClick={() => api.approve(sessionId, call?.id, raw.threadId ?? "main", true)}
-            >
-              Allow
-            </button>
-            <button onClick={() => api.approve(sessionId, call?.id, raw.threadId ?? "main", false)}>
-              Deny
-            </button>
-          </div>
+          <ApprovalButtons
+            sessionId={sessionId}
+            toolCallId={call?.id}
+            threadId={raw.threadId ?? "main"}
+          />
         </Row>
       );
     }
