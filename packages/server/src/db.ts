@@ -88,7 +88,10 @@ export function sessionTrace(sessionId: string) {
     .prepare(`SELECT * FROM turns WHERE session_id = ? ORDER BY created_at`)
     .all(sessionId);
   const events = db
-    .prepare(`SELECT id, turn_id, thread_id, type, created_at, raw FROM events WHERE session_id = ? ORDER BY id`)
+    // Order by created_at like the ingest fetch, id as tie-breaker (ids are
+    // time-sortable ULIDs today, but that is not part of the API contract).
+    // Untimestamped events sort last instead of jumping to the front.
+    .prepare(`SELECT id, turn_id, thread_id, type, created_at, raw FROM events WHERE session_id = ? ORDER BY created_at IS NULL, created_at, id`)
     .all(sessionId) as { raw: string }[];
   return {
     session,
