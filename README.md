@@ -22,7 +22,9 @@ Built for the Agent Harness Hackathon (WeMakeDevs + TrueFoundry, Aug 2026).
 
 - `packages/server` — collector, REST/SSE API, MCP server
 - `packages/web` — dashboard (Vite + React)
-- `agents/` — TrueForge agent specs
+
+Agent specs (investigator plus two demo agents) are defined in
+`packages/server/src/seed.ts` and registered in TrueForge via its API.
 
 ## Running
 
