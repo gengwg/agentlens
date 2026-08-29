@@ -72,6 +72,10 @@ Future work: an OTLP exporter on the collector, translating the mirrored event
 log into OpenTelemetry GenAI spans so traces land in Tempo/Jaeger alongside
 infra traces. TrueForge emits no telemetry itself, so the exporter belongs here.
 
+The store and UI are harness-neutral; TrueForge is the first adapter, and an
+OTLP receiver (ingesting OTel GenAI spans from Claude Code, opencode, and
+others) is the second.
+
 ## Links
 
 - Build story: https://gengwg.medium.com/building-agentlens-what-trueforge-doesnt-tell-you-until-you-build-on-it-4173e6f7d6ce
