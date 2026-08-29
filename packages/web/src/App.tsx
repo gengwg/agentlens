@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type Report, type SessionSummary, type Trace, type TraceEvent } from "./api";
 
 const fmtTokens = (n: number | null | undefined) =>
@@ -207,9 +207,9 @@ function TraceView({
   const [trace, setTrace] = useState<Trace | null>(null);
   const [live, setLive] = useState<TraceEvent[]>([]);
   const [q, setQ] = useState("");
-  const esRef = useRef<EventSource | null>(null);
 
-  const running = trace?.turns.some((t) => t.status === "running") ?? false;
+  const runningTurnId = trace?.turns.find((t) => t.status === "running")?.id;
+  const running = Boolean(runningTurnId);
 
   useEffect(() => {
     let stop = false;
@@ -222,40 +222,36 @@ function TraceView({
     };
   }, [sessionId]);
 
-  // Live-tail the newest running turn via the SSE proxy.
+  // Live-tail the running turn via the SSE proxy. Keyed on the turn id, not
+  // the trace object, so the 2.5s poll doesn't tear down the connection.
   useEffect(() => {
-    const turn = trace?.turns.find((t) => t.status === "running");
-    if (!turn || esRef.current) return;
-    const es = new EventSource(`/api/sessions/${sessionId}/turns/${turn.id}/live`);
-    esRef.current = es;
+    if (!runningTurnId) return;
+    const es = new EventSource(`/api/sessions/${sessionId}/turns/${runningTurnId}/live`);
     es.onmessage = (m) => {
       const raw = JSON.parse(m.data);
-      setLive((prev) => [
-        ...prev,
-        {
-          id: raw.id ?? String(prev.length),
-          turn_id: turn.id,
-          thread_id: raw.threadId ?? null,
-          type: raw.type,
-          created_at: raw.createdAt ?? null,
-          raw,
-        },
-      ]);
-      if (raw.type === "turn.done") {
-        es.close();
-        esRef.current = null;
-        setLive([]);
-      }
+      setLive((prev) =>
+        raw.id && prev.some((e) => e.id === raw.id)
+          ? prev
+          : [
+              ...prev,
+              {
+                id: raw.id ?? String(prev.length),
+                turn_id: runningTurnId,
+                thread_id: raw.threadId ?? null,
+                type: raw.type,
+                created_at: raw.createdAt ?? null,
+                raw,
+              },
+            ],
+      );
+      if (raw.type === "turn.done") es.close();
     };
-    es.onerror = () => {
-      es.close();
-      esRef.current = null;
-    };
+    es.onerror = () => es.close();
     return () => {
       es.close();
-      esRef.current = null;
+      setLive([]);
     };
-  }, [trace, sessionId]);
+  }, [sessionId, runningTurnId]);
 
   const events = useMemo(() => {
     const stored = trace?.events ?? [];
