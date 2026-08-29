@@ -5,6 +5,10 @@ run, and an investigator agent that diagnoses the bad ones.
 
 Built for the Agent Harness Hackathon (WeMakeDevs + TrueFoundry, Aug 2026).
 
+![Fleet dashboard](docs/sessions.png)
+
+![Investigator trace](docs/trace.png)
+
 ## What it does
 
 - Collects sessions, turns, and events from a TrueForge server into SQLite.
@@ -22,10 +26,21 @@ Built for the Agent Harness Hackathon (WeMakeDevs + TrueFoundry, Aug 2026).
 
 ## Running
 
+Needs Node 22+. The local TrueForge sandbox additionally needs `bwrap`, `socat`,
+and `rg` on the host.
+
 1. `npx @truefoundry/trueforge` (TrueForge at http://localhost:8790)
-2. `npm install`
-3. `npm run dev -w packages/server`
-4. `npm run dev -w packages/web`
+2. Add a model provider (TrueForge UI settings, or the API).
+3. `npm install`
+4. `npm run dev -w packages/server` (API :8788, MCP server :8791)
+5. `npm run dev -w packages/web` (dashboard at http://localhost:5173)
+6. `SANDBOX=1 npm run seed -w packages/server` registers the AgentLens MCP
+   server in TrueForge, creates the investigator plus two demo agents (one wired
+   to a dead MCP server so failures exist), and generates demo traffic.
+
+Click "Investigate fleet" in the dashboard. The investigator finds the failing
+sessions, fans out subagents, drafts an incident report, and pauses on the
+approval gate; Allow publishes the report to the dashboard.
 
 ## Harness feature map
 

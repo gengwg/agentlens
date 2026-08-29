@@ -17,7 +17,10 @@ function buildMcp() {
     },
     async () => {
       const rows = sessionSummaries()
-        .filter((s: any) => s.error_turns > 0 || (s.total_seconds ?? 0) > 120)
+        .filter(
+          (s: any) =>
+            s.error_turns > 0 || s.tool_errors > 0 || (s.total_seconds ?? 0) > 120,
+        )
         .slice(0, 20);
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 1) }] };
     },

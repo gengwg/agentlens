@@ -22,8 +22,15 @@ function StatusDot({ status }: { status: string }) {
 export function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, select] = useState<string | null>(
+    () => new URLSearchParams(location.search).get("session"),
+  );
   const [busy, setBusy] = useState(false);
+
+  const setSelected = (id: string | null) => {
+    select(id);
+    history.replaceState(null, "", id ? `?session=${id}` : location.pathname);
+  };
 
   const refresh = () => {
     api.sessions().then(setSessions).catch(() => {});
@@ -48,7 +55,7 @@ export function App() {
   const totals = useMemo(() => {
     const t = { sessions: sessions.length, errors: 0, tokens: 0, tools: 0 };
     for (const s of sessions) {
-      if (s.error_turns > 0) t.errors++;
+      if (s.error_turns > 0 || s.tool_errors > 0) t.errors++;
       t.tokens += (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
       t.tools += s.tool_calls;
     }
@@ -135,7 +142,15 @@ function SessionTable({
           {rows.map((s) => (
             <tr key={s.id} onClick={() => onSelect(s.id)}>
               <td>
-                <StatusDot status={s.running ? "running" : s.error_turns > 0 ? "error" : "done"} />
+                <StatusDot
+                  status={
+                    s.running
+                      ? "running"
+                      : s.error_turns > 0 || s.tool_errors > 0
+                        ? "error"
+                        : "done"
+                  }
+                />
               </td>
               <td className="mono">{s.agent_name}</td>
               <td className="dim">{s.title ?? s.id.slice(0, 18)}</td>
@@ -252,6 +267,17 @@ function TraceView({
     ? events.filter((e) => JSON.stringify(e.raw).toLowerCase().includes(q.toLowerCase()))
     : events;
 
+  // toolCallId -> tool name, gathered from assistant messages.
+  const toolNames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of events) {
+      for (const c of e.raw.toolCalls ?? []) {
+        if (c.id && c.function?.name) m.set(c.id, c.function.name);
+      }
+    }
+    return m;
+  }, [events]);
+
   if (!trace) return <main className="empty">loading...</main>;
 
   return (
@@ -271,7 +297,7 @@ function TraceView({
       <Timeline events={events} />
       <div className="transcript">
         {filtered.map((e) => (
-          <EventRow key={e.id} ev={e} sessionId={sessionId} />
+          <EventRow key={e.id} ev={e} sessionId={sessionId} toolNames={toolNames} />
         ))}
       </div>
     </main>
@@ -321,7 +347,15 @@ function Timeline({ events }: { events: TraceEvent[] }) {
   );
 }
 
-function EventRow({ ev, sessionId }: { ev: TraceEvent; sessionId: string }) {
+function EventRow({
+  ev,
+  sessionId,
+  toolNames,
+}: {
+  ev: TraceEvent;
+  sessionId: string;
+  toolNames: Map<string, string>;
+}) {
   const raw = ev.raw;
   const sub = !!ev.thread_id && ev.thread_id !== "main";
   switch (ev.type) {
@@ -358,26 +392,28 @@ function EventRow({ ev, sessionId }: { ev: TraceEvent; sessionId: string }) {
           spawned: {raw.title}
         </Row>
       );
-    case "tool.approval_required":
+    case "tool.approval_required": {
+      const call = raw.toolCalls?.[0];
+      const name = call ? (toolNames.get(call.id) ?? call.id) : "?";
       return (
         <Row tag="APPROVAL" cls="approval" time={ev.created_at} sub={sub}>
           <div>
-            Tool <span className="mono">{raw.toolCall?.function?.name ?? raw.toolCall?.toolInfo?.name}</span> awaits
-            approval
+            Tool <span className="mono">{name}</span> awaits approval
           </div>
           <div className="approveBtns">
             <button
               className="primary"
-              onClick={() => api.approve(sessionId, raw.toolCall?.id, raw.threadId ?? "main", true)}
+              onClick={() => api.approve(sessionId, call?.id, raw.threadId ?? "main", true)}
             >
               Allow
             </button>
-            <button onClick={() => api.approve(sessionId, raw.toolCall?.id, raw.threadId ?? "main", false)}>
+            <button onClick={() => api.approve(sessionId, call?.id, raw.threadId ?? "main", false)}>
               Deny
             </button>
           </div>
         </Row>
       );
+    }
     case "turn.done":
       return (
         <Row tag="TURN" cls={raw.state?.status === "error" ? "error" : "done"} time={ev.created_at}>
