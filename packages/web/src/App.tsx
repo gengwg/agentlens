@@ -253,7 +253,9 @@ function TraceView({
   useEffect(() => {
     if (!runningTurnId) return;
     const es = new EventSource(`/api/sessions/${sessionId}/turns/${runningTurnId}/live`);
+    let firstErrorAt = 0;
     es.onmessage = (m) => {
+      firstErrorAt = 0;
       const raw = JSON.parse(m.data);
       setLive((prev) =>
         raw.id && prev.some((e) => e.id === raw.id)
@@ -272,10 +274,13 @@ function TraceView({
       );
       if (raw.type === "turn.done") es.close();
     };
-    // Let the browser's built-in reconnect run on transient errors; only give
-    // up when the connection is permanently closed (e.g. stream ended).
+    // Let the browser's built-in reconnect run on transient errors, but bound
+    // it: a dead turn id would otherwise retry forever (the 2.5s poll picks up
+    // the completed turn shortly anyway).
     es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) es.close();
+      const now = Date.now();
+      if (!firstErrorAt) firstErrorAt = now;
+      if (es.readyState === EventSource.CLOSED || now - firstErrorAt > 30_000) es.close();
     };
     return () => {
       es.close();
@@ -320,6 +325,7 @@ function TraceView({
           {trace.session?.agent_name} <span className="dim">/ {sessionId.slice(0, 20)}</span>
         </h2>
         {running && <span className="badge running">running</span>}
+        {loadError && <span className="errMsg">{loadError} Showing last known data.</span>}
         <span className="grow" />
         <input placeholder="search events" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="primary" onClick={onInvestigate}>
