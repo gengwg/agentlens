@@ -137,6 +137,10 @@ export function startMcpServer(port = 8791) {
       res.end(JSON.stringify({ error: "internal error" }));
     }
   });
-  server.listen(port, () => console.log(`agentlens mcp on http://localhost:${port}/mcp`));
+  // Loopback only: the MCP tools have no auth, so binding to all interfaces
+  // would expose session traces and the report-write tool to the LAN.
+  server.listen(port, "127.0.0.1", () =>
+    console.log(`agentlens mcp on http://localhost:${port}/mcp`),
+  );
   return server;
 }
