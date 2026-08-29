@@ -1,0 +1,7 @@
+{
+  "name": "agentlens",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ]
+}
