@@ -54,7 +54,7 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(sessionId ? { session_id: sessionId } : {}),
     }).then(json),
-  approve: (sessionId: string, toolCallId: string, threadId: string, allow: boolean) =>
+  approve: (sessionId: string, toolCallId: string | undefined, threadId: string, allow: boolean) =>
     fetch(`/api/sessions/${sessionId}/approve`, {
       method: "POST",
       headers: { "content-type": "application/json" },
