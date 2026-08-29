@@ -19,7 +19,8 @@ Deadline is imminent: bias to shipping, smallest thing that works, no gold-plati
 - `packages/server`: collector + REST/SSE API + MCP server. Hono, better-sqlite3,
   `@truefoundry/trueforge-sdk`.
 - `packages/web`: Vite + React dashboard.
-- `agents/`: TrueForge agent YAML specs (demo agents + investigator).
+- Agent specs (investigator + demo agents) are defined in
+  `packages/server/src/seed.ts` and registered via the TrueForge API.
 - TrueForge runs locally: `npx @truefoundry/trueforge` -> http://localhost:8790
 
 ## TrueForge cheat sheet
