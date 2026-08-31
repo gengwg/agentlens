@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS turns (
   completed_at TEXT,
   status TEXT,
   error TEXT,
-  ingested INTEGER DEFAULT 0
+  ingested INTEGER DEFAULT 0,
+  pending_actions INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
@@ -40,6 +41,13 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 `);
 
+// Migration for databases created before pending_actions existed.
+try {
+  db.exec(`ALTER TABLE turns ADD COLUMN pending_actions INTEGER DEFAULT 0`);
+} catch {
+  // column already exists
+}
+
 export const upsertSession = db.prepare(`
   INSERT INTO sessions (id, agent_name, title, created_at, updated_at, created_by)
   VALUES (@id, @agent_name, @title, @created_at, @updated_at, @created_by)
@@ -47,9 +55,9 @@ export const upsertSession = db.prepare(`
 `);
 
 export const upsertTurn = db.prepare(`
-  INSERT INTO turns (id, session_id, created_at, completed_at, status, error, ingested)
-  VALUES (@id, @session_id, @created_at, @completed_at, @status, @error, @ingested)
-  ON CONFLICT(id) DO UPDATE SET completed_at=@completed_at, status=@status, error=@error, ingested=@ingested
+  INSERT INTO turns (id, session_id, created_at, completed_at, status, error, ingested, pending_actions)
+  VALUES (@id, @session_id, @created_at, @completed_at, @status, @error, @ingested, @pending_actions)
+  ON CONFLICT(id) DO UPDATE SET completed_at=@completed_at, status=@status, error=@error, ingested=@ingested, pending_actions=@pending_actions
 `);
 
 export const insertEvent = db.prepare(`
@@ -66,6 +74,9 @@ export function sessionSummaries() {
       (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count,
       (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.status = 'error') AS error_turns,
       (SELECT MAX(t.status='running') FROM turns t WHERE t.session_id = s.id) AS running,
+      -- A turn paused on approval reports status 'done'; only the newest turn's
+      -- pending actions are still actionable (a resolution creates a new turn).
+      (SELECT t.pending_actions FROM turns t WHERE t.session_id = s.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS pending_approvals,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response') AS tool_calls,
       -- Known heuristic: TrueForge wraps MCP tool failures as a content string
       -- starting with {"error". The prefix match (not %error%) keeps sessions
