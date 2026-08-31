@@ -57,9 +57,10 @@ export function App() {
   };
 
   const totals = useMemo(() => {
-    const t = { sessions: sessions.length, errors: 0, tokens: 0, tools: 0 };
+    const t = { sessions: sessions.length, errors: 0, tokens: 0, tools: 0, approvals: 0 };
     for (const s of sessions) {
       if (s.error_turns > 0 || s.tool_errors > 0) t.errors++;
+      if (s.pending_approvals > 0) t.approvals++;
       t.tokens += (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
       t.tools += s.tool_calls;
     }
@@ -75,6 +76,7 @@ export function App() {
         <div className="stats">
           <Stat label="sessions" value={String(totals.sessions)} />
           <Stat label="with errors" value={String(totals.errors)} alert={totals.errors > 0} />
+          <Stat label="need approval" value={String(totals.approvals)} alert={totals.approvals > 0} />
           <Stat label="tool calls" value={String(totals.tools)} />
           <Stat label="tokens" value={fmtTokens(totals.tokens)} />
         </div>
@@ -162,9 +164,11 @@ function SessionTable({
                   status={
                     s.running
                       ? "running"
-                      : s.error_turns > 0 || s.tool_errors > 0
-                        ? "error"
-                        : "done"
+                      : s.pending_approvals > 0
+                        ? "approval"
+                        : s.error_turns > 0 || s.tool_errors > 0
+                          ? "error"
+                          : "done"
                   }
                 />
               </td>

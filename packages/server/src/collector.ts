@@ -11,6 +11,7 @@ async function ingestTurn(sessionId: string, turn: any) {
   const terminal = state.status && state.status !== "running";
   const already = getIngested.get(turn.id) as { ingested: number } | undefined;
 
+  const pending = state.requiredActions?.length ?? 0;
   upsertTurn.run({
     id: turn.id,
     session_id: sessionId,
@@ -19,6 +20,7 @@ async function ingestTurn(sessionId: string, turn: any) {
     status: state.status ?? "running",
     error: state.status === "error" ? (state.message ?? null) : null,
     ingested: already?.ingested ?? 0,
+    pending_actions: pending,
   });
 
   // Event logs exist only for terminal turns; fetch once.
@@ -46,6 +48,7 @@ async function ingestTurn(sessionId: string, turn: any) {
       status: state.status,
       error: state.status === "error" ? (state.message ?? null) : null,
       ingested: 1,
+      pending_actions: pending,
     });
   });
   write();
