@@ -9,6 +9,7 @@ export type SessionSummary = {
   running: number;
   tool_calls: number;
   tool_errors: number;
+  pending_approvals: number;
   subagents: number;
   input_tokens: number | null;
   output_tokens: number | null;
