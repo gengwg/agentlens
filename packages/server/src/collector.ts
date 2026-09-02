@@ -49,9 +49,24 @@ async function ingestTurn(sessionId: string, turn: any) {
   write();
 }
 
+const getStored = db.prepare(`SELECT updated_at FROM sessions WHERE id = ?`);
+const getOpenTurns = db.prepare(
+  `SELECT 1 FROM turns WHERE session_id = ? AND (status = 'running' OR ingested = 0) LIMIT 1`,
+);
+
 export async function pollOnce() {
   const sessions = await client.sessions.list();
   for await (const s of sessions) {
+    const stored = getStored.get(s.id) as { updated_at: string | null } | undefined;
+    // Incremental: skip re-scanning sessions whose TrueForge updated_at is
+    // unchanged since the last poll, unless a turn is still running or its
+    // events were never ingested. Turns parked on an approval gate are static
+    // until resolved, and resolving always creates a new turn (bumping
+    // updated_at), so they can skip too. DB timestamps are ISO strings, SDK
+    // ones may be Date objects - compare epoch ms.
+    const unchanged =
+      stored?.updated_at != null && Date.parse(stored.updated_at) === new Date(s.updatedAt).getTime();
+    if (unchanged && !getOpenTurns.get(s.id)) continue;
     upsertSession.run({
       id: s.id,
       agent_name: (s.agent as any)?.name ?? "(inline)",
