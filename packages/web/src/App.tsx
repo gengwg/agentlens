@@ -27,6 +27,8 @@ export function App() {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   const setSelected = (id: string | null) => {
     select(id);
@@ -34,8 +36,14 @@ export function App() {
   };
 
   const refresh = () => {
-    api.sessions().then(setSessions).catch(() => {});
-    api.reports().then(setReports).catch(() => {});
+    Promise.all([api.sessions(), api.reports()])
+      .then(([s, r]) => {
+        setSessions(s);
+        setReports(r);
+        setOffline(false);
+        setLastSync(new Date());
+      })
+      .catch(() => setOffline(true));
   };
   useEffect(() => {
     refresh();
@@ -80,6 +88,11 @@ export function App() {
           <Stat label="tool calls" value={String(totals.tools)} />
           <Stat label="tokens" value={fmtTokens(totals.tokens)} />
         </div>
+        {offline && (
+          <span className="badge stale" title={`last sync ${lastSync?.toLocaleTimeString() ?? "never"}`}>
+            server unreachable
+          </span>
+        )}
         {error && <span className="errMsg">{error}</span>}
         <button className="primary" disabled={busy} onClick={() => investigate()}>
           {busy ? "starting..." : "Investigate fleet"}
