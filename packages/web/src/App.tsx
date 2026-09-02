@@ -29,6 +29,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [filter, setFilter] = useState<"errors" | "approval" | null>(null);
 
   const setSelected = (id: string | null) => {
     select(id);
@@ -83,11 +84,28 @@ export function App() {
         </h1>
         <div className="stats">
           <Stat label="sessions" value={String(totals.sessions)} />
-          <Stat label="with errors" value={String(totals.errors)} alert={totals.errors > 0} />
-          <Stat label="need approval" value={String(totals.approvals)} alert={totals.approvals > 0} />
+          <Stat
+            label="with errors"
+            value={String(totals.errors)}
+            alert={totals.errors > 0}
+            active={filter === "errors"}
+            onClick={() => setFilter(filter === "errors" ? null : "errors")}
+          />
+          <Stat
+            label="need approval"
+            value={String(totals.approvals)}
+            alert={totals.approvals > 0}
+            active={filter === "approval"}
+            onClick={() => setFilter(filter === "approval" ? null : "approval")}
+          />
           <Stat label="tool calls" value={String(totals.tools)} />
           <Stat label="tokens" value={fmtTokens(totals.tokens)} />
         </div>
+        {filter && (
+          <button className="chip" onClick={() => setFilter(null)}>
+            filter: {filter} &times;
+          </button>
+        )}
         {offline && (
           <span className="badge stale" title={`last sync ${lastSync?.toLocaleTimeString() ?? "never"}`}>
             server unreachable
@@ -106,7 +124,7 @@ export function App() {
         />
       ) : (
         <main>
-          <SessionTable sessions={sessions} onSelect={setSelected} />
+          <SessionTable sessions={sessions} onSelect={setSelected} filter={filter} />
           <ReportPanel reports={reports} />
         </main>
       )}
@@ -114,9 +132,33 @@ export function App() {
   );
 }
 
-function Stat({ label, value, alert }: { label: string; value: string; alert?: boolean }) {
+function Stat({
+  label,
+  value,
+  alert,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  alert?: boolean;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <div className={`stat ${alert ? "alert" : ""}`}>
+    <div
+      className={`stat ${alert ? "alert" : ""} ${active ? "active" : ""} ${onClick ? "clickable" : ""}`}
+      tabIndex={onClick ? 0 : undefined}
+      role={onClick ? "button" : undefined}
+      title={onClick ? `filter by ${label}` : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (onClick && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <div className="value">{value}</div>
       <div className="label">{label}</div>
     </div>
@@ -126,17 +168,23 @@ function Stat({ label, value, alert }: { label: string; value: string; alert?: b
 function SessionTable({
   sessions,
   onSelect,
+  filter,
 }: {
   sessions: SessionSummary[];
   onSelect: (id: string) => void;
+  filter: "errors" | "approval" | null;
 }) {
   const [q, setQ] = useState("");
   const rows = sessions.filter(
     (s) =>
-      !q ||
-      s.agent_name?.toLowerCase().includes(q.toLowerCase()) ||
-      s.title?.toLowerCase().includes(q.toLowerCase()) ||
-      s.id.includes(q),
+      (!filter ||
+        (filter === "errors"
+          ? s.error_turns > 0 || s.tool_errors > 0
+          : s.pending_approvals > 0)) &&
+      (!q ||
+        s.agent_name?.toLowerCase().includes(q.toLowerCase()) ||
+        s.title?.toLowerCase().includes(q.toLowerCase()) ||
+        s.id.includes(q)),
   );
   return (
     <section className="card grow">
