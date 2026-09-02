@@ -56,3 +56,25 @@ Then three review rounds hardened the code:
 
 Lesson for the blog: LLM code review found real bugs and confidently proposed
 harmful fixes in the same pass. Triage beats blind application.
+
+## 2026-09-01 - Server test suite
+
+Added 15 tests with `node:test` + tsx, no new dependencies: the SQL rollups in
+`db.ts`, the Hono routes via `app.request()`, and the collector's turn-row
+mapping. Tests point `AGENTLENS_DB` at `:memory:`, so each file gets a fresh
+schema and the demo database is never touched.
+
+The rollup queries were the reason to bother: three of their rules are invisible
+from the call site and a refactor would break them silently - `pending_approvals`
+reads only the newest turn, `tool_errors` matches a `{"error"%` prefix rather
+than `%error%`, and `total_seconds` skips turns that never completed. Each now
+has a test that fails if the SQL drifts.
+
+One change to source: the duplicated turn-row literal in `ingestTurn` became an
+exported `turnRow()`. It made the mapping testable and removed the copy that had
+already drifted (one branch defaulted `status`, the other didn't). The suite also
+runs the row through the real prepared statement, which is what would actually
+break if a column and the object shape disagree.
+
+Skipped the dashboard: testing `App.tsx` needs vitest + jsdom + testing-library,
+three dependencies for the one surface we judge by looking at it.

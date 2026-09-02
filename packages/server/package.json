@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
