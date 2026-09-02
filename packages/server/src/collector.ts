@@ -6,22 +6,26 @@ export const client = new TrueForge({ baseUrl: TRUEFORGE_URL });
 
 const getIngested = db.prepare(`SELECT ingested FROM turns WHERE id = ?`);
 
-async function ingestTurn(sessionId: string, turn: any) {
+export function turnRow(sessionId: string, turn: any, ingested: number) {
   const state = turn.state ?? {};
-  const terminal = state.status && state.status !== "running";
-  const already = getIngested.get(turn.id) as { ingested: number } | undefined;
-
-  const pending = state.requiredActions?.length ?? 0;
-  upsertTurn.run({
+  return {
     id: turn.id,
     session_id: sessionId,
     created_at: turn.createdAt,
     completed_at: state.completedAt ?? null,
     status: state.status ?? "running",
     error: state.status === "error" ? (state.message ?? null) : null,
-    ingested: already?.ingested ?? 0,
-    pending_actions: pending,
-  });
+    ingested,
+    pending_actions: state.requiredActions?.length ?? 0,
+  };
+}
+
+async function ingestTurn(sessionId: string, turn: any) {
+  const state = turn.state ?? {};
+  const terminal = state.status && state.status !== "running";
+  const already = getIngested.get(turn.id) as { ingested: number } | undefined;
+
+  upsertTurn.run(turnRow(sessionId, turn, already?.ingested ?? 0));
 
   // Event logs exist only for terminal turns; fetch once.
   if (!terminal || already?.ingested) return;
@@ -40,16 +44,7 @@ async function ingestTurn(sessionId: string, turn: any) {
         raw: JSON.stringify(ev),
       });
     }
-    upsertTurn.run({
-      id: turn.id,
-      session_id: sessionId,
-      created_at: turn.createdAt,
-      completed_at: state.completedAt ?? null,
-      status: state.status,
-      error: state.status === "error" ? (state.message ?? null) : null,
-      ingested: 1,
-      pending_actions: pending,
-    });
+    upsertTurn.run(turnRow(sessionId, turn, 1));
   });
   write();
 }
