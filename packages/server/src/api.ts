@@ -50,14 +50,20 @@ app.post("/api/investigate", async (c) => {
 
 // Approve or deny the investigator's pending tool call (human-in-the-loop gate).
 app.post("/api/sessions/:id/approve", async (c) => {
-  const { tool_call_id, thread_id, allow } = await c.req.json();
+  let body: { tool_call_id?: string; thread_id?: string; allow?: boolean };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  if (!body?.tool_call_id) return c.json({ error: "tool_call_id is required" }, 400);
   const { data: turn } = await client.sessions.createTurn(c.req.param("id"), {
     input: [
       {
         type: "user.tool_approval",
-        toolCallId: tool_call_id,
-        threadId: thread_id,
-        approval: { status: allow ? "allow" : "deny" },
+        toolCallId: body.tool_call_id,
+        threadId: body.thread_id ?? "main",
+        approval: { status: body.allow === true ? "allow" : "deny" },
       },
     ],
   });
