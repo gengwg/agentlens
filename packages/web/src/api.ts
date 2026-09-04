@@ -33,6 +33,7 @@ export type Trace = {
     completed_at: string | null;
     status: string;
     error: string | null;
+    pending_actions: number;
   }[];
   events: TraceEvent[];
 };

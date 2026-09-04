@@ -83,7 +83,12 @@ export function App() {
           Agent<span className="accent">Lens</span>
         </h1>
         <div className="stats">
-          <Stat label="sessions" value={String(totals.sessions)} />
+          <Stat
+            label="sessions"
+            value={String(totals.sessions)}
+            active={filter === null}
+            onClick={() => setFilter(null)}
+          />
           <Stat
             label="with errors"
             value={String(totals.errors)}
@@ -150,6 +155,7 @@ function Stat({
       className={`stat ${alert ? "alert" : ""} ${active ? "active" : ""} ${onClick ? "clickable" : ""}`}
       tabIndex={onClick ? 0 : undefined}
       role={onClick ? "button" : undefined}
+      aria-pressed={onClick ? !!active : undefined}
       title={onClick ? `filter by ${label}` : undefined}
       onClick={onClick}
       onKeyDown={(e) => {
@@ -374,6 +380,15 @@ function TraceView({
     return m;
   }, [events]);
 
+  // Only the newest turn can hold an actionable approval (a resolution creates
+  // a new turn). If the newest turn has none pending, earlier approval_required
+  // events are stale and TrueForge 422s on approving them.
+  const approvalTurnId = useMemo(() => {
+    const turns = trace?.turns ?? [];
+    const newest = turns[turns.length - 1];
+    return newest && newest.pending_actions > 0 ? newest.id : null;
+  }, [trace]);
+
   if (!trace)
     return (
       <main className="empty">
@@ -400,7 +415,13 @@ function TraceView({
       <Timeline events={events} />
       <div className="transcript">
         {filtered.map((e) => (
-          <EventRow key={e.id} ev={e} sessionId={sessionId} toolNames={toolNames} />
+          <EventRow
+            key={e.id}
+            ev={e}
+            sessionId={sessionId}
+            toolNames={toolNames}
+            approvalTurnId={approvalTurnId}
+          />
         ))}
       </div>
     </main>
@@ -486,10 +507,12 @@ function EventRow({
   ev,
   sessionId,
   toolNames,
+  approvalTurnId,
 }: {
   ev: TraceEvent;
   sessionId: string;
   toolNames: Map<string, string>;
+  approvalTurnId: string | null;
 }) {
   const raw = ev.raw;
   const sub = !!ev.thread_id && ev.thread_id !== "main";
@@ -530,16 +553,21 @@ function EventRow({
     case "tool.approval_required": {
       const call = raw.toolCalls?.[0];
       const name = call ? (toolNames.get(call.id) ?? call.id) : "?";
+      const actionable = ev.turn_id === approvalTurnId;
       return (
         <Row tag="APPROVAL" cls="approval" time={ev.created_at} sub={sub}>
           <div>
             Tool <span className="mono">{name}</span> awaits approval
           </div>
-          <ApprovalButtons
-            sessionId={sessionId}
-            toolCallId={call?.id}
-            threadId={raw.threadId ?? "main"}
-          />
+          {actionable ? (
+            <ApprovalButtons
+              sessionId={sessionId}
+              toolCallId={call?.id}
+              threadId={raw.threadId ?? "main"}
+            />
+          ) : (
+            <span className="dim">resolved</span>
+          )}
         </Row>
       );
     }
