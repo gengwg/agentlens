@@ -83,7 +83,12 @@ export function App() {
           Agent<span className="accent">Lens</span>
         </h1>
         <div className="stats">
-          <Stat label="sessions" value={String(totals.sessions)} />
+          <Stat
+            label="sessions"
+            value={String(totals.sessions)}
+            active={filter === null}
+            onClick={() => setFilter(null)}
+          />
           <Stat
             label="with errors"
             value={String(totals.errors)}
@@ -150,6 +155,7 @@ function Stat({
       className={`stat ${alert ? "alert" : ""} ${active ? "active" : ""} ${onClick ? "clickable" : ""}`}
       tabIndex={onClick ? 0 : undefined}
       role={onClick ? "button" : undefined}
+      aria-pressed={onClick ? !!active : undefined}
       title={onClick ? `filter by ${label}` : undefined}
       onClick={onClick}
       onKeyDown={(e) => {
