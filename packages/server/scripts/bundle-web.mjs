@@ -1,6 +1,6 @@
 // Copy the built dashboard next to the compiled server so the published
 // package ships one self-contained tree.
-import { cpSync, existsSync, chmodSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +10,10 @@ if (!existsSync(src)) {
   console.error("packages/web/dist missing; run npm run build -w packages/web first");
   process.exit(1);
 }
-cpSync(src, join(root, "dist", "web"), { recursive: true });
+// Clear first: hashed filenames change every build, so copying into a stale
+// directory ships every past bundle alongside the current one.
+const dest = join(root, "dist", "web");
+rmSync(dest, { recursive: true, force: true });
+cpSync(src, dest, { recursive: true });
 cpSync(join(root, "..", "..", "README.md"), join(root, "README.md"));
 chmodSync(join(root, "dist", "index.js"), 0o755);
