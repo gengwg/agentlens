@@ -91,7 +91,7 @@ token usage, so event times are interpolated between the chat's start and end.
 Antigravity CLI records no token usage. The Cursor IDE's own chats (not the CLI)
 are not read.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
-(`8791`).
+(`8791`), `AGENTLENS_HOST` (`127.0.0.1`, see Shared server below).
 
 Claude Code and dsh transcripts are tailed with per-file cursors (subagent
 transcripts become threads); OpenCode is polled read-only from its SQLite
@@ -125,6 +125,34 @@ Turn `status` is `running`, `done`, `error`, or `cancelled`. Event types the
 dashboard renders: `turn.created`, `model.message`, `tool.response`,
 `thread.created` (`raw.title`, with `thread_id` on the thread's events), and
 `turn.done` (`raw.state.status`).
+
+## Shared server (experimental)
+
+One machine can run AgentLens for a team while transcripts stay on the laptops
+that produced them. Each machine ships **metadata only**: agent, turn
+boundaries and status, tool names, token counts, error flags. Prompts, model
+replies, tool output, tool arguments, error messages and titles are dropped
+before anything is sent.
+
+On the server, listening on a private address (a tailnet, not the internet):
+
+```
+AGENTLENS_HOST=100.x.y.z npx @gengwg/agentlens
+```
+
+On each machine, alongside the local AgentLens:
+
+```
+agentlens ship --to http://100.x.y.z:8788
+```
+
+It ships every 60 seconds (`--interval`, or `--once`), tracks what it has
+already sent, and namespaces ids by hostname so machines cannot collide; the
+Agent column reads `machine/project`. `AGENTLENS_SHIP_TITLES=1` includes
+session titles, which are first-prompt text, so it is off by default.
+
+There is no authentication yet: anyone who can reach the port sees every
+shipped session and can post to it. Keep it on a private network.
 
 ## Harness feature map
 

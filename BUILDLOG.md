@@ -190,3 +190,23 @@ A test built from the real header also caught an ordering bug: turn.done shared
 the final reply's timestamp and sorted ahead of it, so a trace ended before its
 last message. The turn now ends at the session's last write.
 
+## 2026-09-06 - A shared server that does not move transcripts
+
+What: `agentlens ship --to <url>` posts session metadata from one machine to
+another AgentLens, and `AGENTLENS_HOST` lets the receiver listen on a private
+address. Content is dropped by the sender, not the receiver: prompts, replies,
+tool output, tool arguments, error messages and titles never leave the machine.
+Tool names, token counts, timings, statuses and error flags do.
+
+Why: the fleet view answers most team questions (who is burning tokens, which
+projects fail, how long turns take) without needing anyone's transcripts, and
+sending company code to a VM is a decision nobody should make by accident.
+
+Tested against a DigitalOcean box over a tailnet: 189 sessions, 2260 turns and
+39466 events shipped, and a scan of the receiving database found zero content
+characters. The only non-empty text was the literal "subagent" placeholder the
+redactor writes for thread titles. Remote traces show the full shape, 266 rows
+with tags, token counts and a timeline, and empty bodies.
+
+The receiver still has no authentication, so it is private-network only.
+
