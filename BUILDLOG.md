@@ -132,3 +132,20 @@ Surprises:
   on 2026-06-18 (enterprise licenses keep it) in favor of Antigravity CLI. The
   adapter stays for enterprise users and existing history; Antigravity needs a
   sample session before an adapter is worth writing.
+
+## 2026-09-06 - Cursor Agent and Antigravity CLI
+
+What: adapters for the Cursor Agent CLI (`~/.cursor/projects/*/agent-transcripts`)
+and Antigravity CLI (`~/.gemini/antigravity-cli/brain/*/.system_generated/logs`),
+both worked out from real sessions on a second machine, generated with one
+prompt each in print mode.
+
+Surprises:
+- Cursor's transcript is sparse: user and assistant lines with tool_use blocks
+  and a turn_ended status, but no timestamps, tool results, or usage. Only
+  meta.json has start and end times, so event times are interpolated.
+- Antigravity keeps the real conversation in a SQLite store of protobuf blobs,
+  but also writes a readable JSONL transcript of steps (USER_INPUT,
+  PLANNER_RESPONSE with tool_calls, GENERIC tool output). No usage either.
+- Both CLIs refuse tools in headless mode without an explicit trust flag.
+
