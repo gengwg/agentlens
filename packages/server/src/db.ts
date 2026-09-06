@@ -77,6 +77,10 @@ export function sessionSummaries() {
       -- A turn paused on approval reports status 'done'; only the newest turn's
       -- pending actions are still actionable (a resolution creates a new turn).
       (SELECT t.pending_actions FROM turns t WHERE t.session_id = s.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS pending_approvals,
+      (SELECT e.created_at FROM events e
+       WHERE e.session_id = s.id AND e.type = 'tool.approval_required'
+       AND e.turn_id = (SELECT t2.id FROM turns t2 WHERE t2.session_id = s.id AND t2.pending_actions > 0 ORDER BY t2.created_at DESC, t2.id DESC LIMIT 1)
+       ORDER BY e.created_at ASC LIMIT 1) AS approval_since,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response') AS tool_calls,
       -- Known heuristic: TrueForge wraps MCP tool failures as a content string
       -- starting with {"error". The prefix match (not %error%) keeps sessions

@@ -90,6 +90,30 @@ test("trace events sort by time with untimestamped events last", () => {
   assert.equal(trace.turns.length, 1);
 });
 
+test("approval_since returns the earliest approval_required event for the newest pending turn", () => {
+  seedSession("s-age", {
+    turns: [
+      { id: "t10", created_at: "2026-09-01T00:00:00Z", pending_actions: 1 },
+      { id: "t11", created_at: "2026-09-01T00:01:00Z", pending_actions: 2 },
+    ],
+    events: [
+      { id: "e10", turn_id: "t11", type: "tool.approval_required", created_at: "2026-09-01T00:02:00Z" },
+      { id: "e11", turn_id: "t11", type: "tool.approval_required", created_at: "2026-09-01T00:03:00Z" },
+      { id: "e12", turn_id: "t10", type: "tool.approval_required", created_at: "2026-09-01T00:00:30Z" },
+    ],
+  });
+  const s = summary("s-age");
+  assert.equal(s.pending_approvals, 2);
+  assert.equal(s.approval_since, "2026-09-01T00:02:00Z");
+
+  seedSession("s-no-age", {
+    turns: [{ id: "t12", created_at: "2026-09-01T00:00:00Z", pending_actions: 0 }],
+    events: [{ id: "e13", turn_id: "t12", type: "tool.approval_required", created_at: "2026-09-01T00:00:30Z" }],
+  });
+  assert.equal(summary("s-no-age").pending_approvals, 0);
+  assert.equal(summary("s-no-age").approval_since, null);
+});
+
 test("agentSummaries counts sessions and those with errors", () => {
   seedSession("s-a1", { agent: "investigator", turns: [{ id: "ta1", status: "error" }] });
   seedSession("s-a2", { agent: "investigator", turns: [{ id: "ta2" }] });
