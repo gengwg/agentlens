@@ -5,6 +5,14 @@ const fmtTokens = (n: number | null | undefined) =>
   n == null ? "-" : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 const fmtDur = (s: number | null | undefined) =>
   s == null ? "-" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
+const fmtAge = (iso: string | null | undefined) => {
+  if (!iso) return null;
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return `${Math.round(diff)}s`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h`;
+  return `${Math.round(diff / 86400)}d`;
+};
 const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString() : "");
 
 // Segment kind for an event, matching the timeline lanes.
@@ -209,6 +217,7 @@ function SessionTable({
             <th>Subagents</th>
             <th>Tokens</th>
             <th>Duration</th>
+            <th>Age</th>
             <th>Updated</th>
           </tr>
         </thead>
@@ -246,12 +255,13 @@ function SessionTable({
               <td>{s.subagents}</td>
               <td>{fmtTokens((s.input_tokens ?? 0) + (s.output_tokens ?? 0))}</td>
               <td>{fmtDur(s.total_seconds)}</td>
+              <td className="dim">{s.pending_approvals > 0 && s.approval_since ? fmtAge(s.approval_since) : "-"}</td>
               <td className="dim">{fmtTime(s.updated_at)}</td>
             </tr>
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={9} className="empty">
+              <td colSpan={10} className="empty">
                 No sessions yet. Run `npm run seed -w packages/server` to generate demo traffic.
               </td>
             </tr>
