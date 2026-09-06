@@ -131,8 +131,8 @@ dashboard renders: `turn.created`, `model.message`, `tool.response`,
 One machine can run AgentLens for a team while transcripts stay on the laptops
 that produced them. Each machine ships **metadata only**: agent, turn
 boundaries and status, tool names, token counts, error flags. Prompts, model
-replies, tool output, tool arguments, error messages and titles are dropped
-before anything is sent.
+replies, tool output, tool arguments, error messages and titles are dropped by
+the sender, before anything crosses the network.
 
 On the server, listening on a private address (a tailnet, not the internet):
 
@@ -146,13 +146,20 @@ On each machine, alongside the local AgentLens:
 agentlens ship --to http://100.x.y.z:8788
 ```
 
-It ships every 60 seconds (`--interval`, or `--once`), tracks what it has
-already sent, and namespaces ids by hostname so machines cannot collide; the
-Agent column reads `machine/project`. `AGENTLENS_SHIP_TITLES=1` includes
-session titles, which are first-prompt text, so it is off by default.
+The shipper reads the local database that your own AgentLens fills, so keep
+that running (or point `AGENTLENS_DB` at its file). It sends every 60 seconds
+(`--interval`, or `--once` for a single pass), remembers what it already sent,
+and namespaces ids by hostname so two machines cannot collide. `--source`
+names the badge on the shared fleet, `shipped` by default.
 
-There is no authentication yet: anyone who can reach the port sees every
-shipped session and can post to it. Keep it on a private network.
+On the shared view the Agent column reads `machine/project` and the Title
+column shows a session id, because titles are first-prompt text and stay
+local; `AGENTLENS_SHIP_TITLES=1` opts in. A shared trace has the full shape,
+turns, tool calls by name, token counts and timings, with empty message bodies.
+
+There is no authentication: anyone who can reach the port sees every shipped
+session and can post to it. Keep it on a private network, and remember the
+server also ingests its own local sessions unless you set `AGENTLENS_SOURCES`.
 
 ## Harness feature map
 
