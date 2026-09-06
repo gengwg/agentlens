@@ -8,6 +8,31 @@ import { sessionSummaries, sessionTrace } from "./fixtures.ts";
 const { createGemini } = await import("../src/sources/gemini.ts");
 const T = (s: number) => `2026-09-01T00:00:${String(s).padStart(2, "0")}.000Z`;
 
+test("gemini: jsonl patch log folds into a session", async () => {
+  const home = mkdtempSync(join(tmpdir(), "gemini-jsonl-"));
+  const chats = join(home, "tmp", "myproj", "chats");
+  mkdirSync(chats, { recursive: true });
+  const path = join(chats, "session-2026-09-06T18-02-abcd1234.jsonl");
+  // Shape taken from a real Gemini CLI run: header line, then $set patches.
+  writeFileSync(path, [
+    JSON.stringify({ sessionId: "gj1", projectHash: "h", startTime: T(0), lastUpdated: T(0), kind: "chat" }),
+    JSON.stringify({ $set: { lastUpdated: T(1), messages: [{ id: "m1", timestamp: T(0), type: "user", content: [{ text: "say done" }] }] } }),
+    JSON.stringify({ $set: { lastUpdated: T(4), messages: [
+      { id: "m1", timestamp: T(0), type: "user", content: [{ text: "say done" }] },
+      { id: "m2", timestamp: T(3), type: "gemini", content: [{ text: "done" }], tokens: { input: 40, output: 2 } },
+    ] } }),
+    '{"$set": {"lastUpdated":',  // partial trailing line, must be ignored
+  ].join("\n"));
+  await createGemini(home).poll();
+  const s = sessionSummaries().find((x) => x.id === "gj1")!;
+  assert.equal(s.agent_name, "myproj");
+  assert.equal(s.title, "say done");
+  assert.equal(s.turn_count, 1);
+  assert.equal(s.running, 0);
+  assert.equal(s.input_tokens, 40);
+  assert.deepEqual(sessionTrace("gj1").events.map((e) => e.type), ["turn.created", "model.message", "turn.done"]);
+});
+
 test("gemini: chat file maps to turns, re-read on change", async () => {
   const home = mkdtempSync(join(tmpdir(), "gemini-"));
   writeFileSync(join(home, "projects.json"), JSON.stringify({ projects: { "/work/web": "h1" } }));

@@ -4,9 +4,15 @@ import { db, getCursor, setCursor } from "../db.js";
 import { MAX_TOOL_OUTPUT, closeTurn, ensureSession, openTurn, putEvent, textOf, touch } from "./emit.js";
 import type { Source } from "./types.js";
 
-// Experimental: Gemini CLI chats, ~/.gemini/tmp/<project-hash>/chats/session-*.json.
-// One JSON document per session, rewritten as it grows, so every change is
-// re-read and events are upserted. Written from the public format.
+// Experimental: Gemini CLI chats under ~/.gemini/tmp/<project>/chats/.
+// Current versions write session-*.jsonl: a header line {sessionId, startTime,
+// lastUpdated} followed by patch lines that $set fields, messages included.
+// Older versions wrote one session-*.json document. Both are read here; the
+// file is re-read whenever it changes and events are upserted.
+//
+// Verified against a real (failed) run: header and user message shape. Gemini
+// CLI refuses individual accounts since June 2026, so the assistant, tool and
+// token fields below are still from the published format, not observed.
 
 const SOURCE = "gemini";
 
@@ -53,8 +59,10 @@ export function ingestSession(doc: any, projectName: string) {
     }
   }
   // The final turn is done once the model has answered without pending calls.
+  // It ends when the session was last written, which is at or after the reply.
   const pending = (lastAssistant?.toolCalls ?? []).some((c) => c.result === undefined && c.status !== "error");
-  if (turn && lastAssistant && !pending) finish("done", lastAssistant.timestamp);
+  const endedAt = [doc.lastUpdated, lastAssistant?.timestamp].filter(Boolean).sort().pop();
+  if (turn && lastAssistant && !pending) finish("done", endedAt);
   touch(sid, doc.lastUpdated ?? msgs[msgs.length - 1].timestamp);
 }
 
@@ -68,6 +76,24 @@ function projectNames(home: string): Record<string, string> {
   }
 }
 
+// A .jsonl chat is a header plus $set patches; fold them into one document.
+export function readChat(text: string, ext: string): any {
+  if (ext === ".json") return JSON.parse(text);
+  const doc: any = {};
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let rec: any;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue; // partial trailing line
+    }
+    Object.assign(doc, rec.$set ?? rec);
+  }
+  delete doc.$set;
+  return doc;
+}
+
 export function createGemini(home: string): Source {
   const tmp = join(home, "tmp");
   let detail = tmp;
@@ -78,16 +104,17 @@ export function createGemini(home: string): Source {
       const chats = join(tmp, proj.name, "chats");
       if (!proj.isDirectory() || !existsSync(chats)) continue;
       for (const f of readdirSync(chats)) {
-        if (!f.endsWith(".json")) continue;
+        const ext = f.endsWith(".jsonl") ? ".jsonl" : f.endsWith(".json") ? ".json" : null;
+        if (!ext) continue;
         const path = join(chats, f);
         files++;
         try {
           const st = statSync(path);
           const key = `${st.size}:${st.mtimeMs}`;
           if (getCursor<string>(SOURCE, path) === key) continue;
-          const doc = JSON.parse(readFileSync(path, "utf8"));
+          const doc = readChat(readFileSync(path, "utf8"), ext);
           db.transaction(() => {
-            ingestSession(doc, names[proj.name] ?? SOURCE);
+            ingestSession(doc, names[proj.name] ?? proj.name);
             setCursor(SOURCE, path, key);
           })();
         } catch (err) {
