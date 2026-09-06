@@ -128,4 +128,7 @@ Surprises:
 - Gemini CLI rewrites the whole chat JSON; Roo Code keeps token usage in a
   separate ui_messages.json and, on the XML tool protocol, tool calls are
   markup inside the assistant text.
-
+- Learned after shipping: Google stopped serving Gemini CLI to consumer plans
+  on 2026-06-18 (enterprise licenses keep it) in favor of Antigravity CLI. The
+  adapter stays for enterprise users and existing history; Antigravity needs a
+  sample session before an adapter is worth writing.
