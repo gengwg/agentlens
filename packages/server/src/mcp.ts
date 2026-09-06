@@ -12,14 +12,16 @@ function buildMcp() {
     "list_problem_sessions",
     {
       description:
-        "List sessions with failed/cancelled turns or unusually slow turns, worst first. Start an investigation here.",
+        "List sessions with failed turns, repeated tool failures, or unusually slow turns, worst first. Start an investigation here.",
       inputSchema: {},
     },
     async () => {
       const rows = sessionSummaries()
+        // Tool errors alone are routine (a search that missed, a command that
+        // exited non-zero); only a repeated pattern is worth investigating.
         .filter(
           (s: any) =>
-            s.error_turns > 0 || s.tool_errors > 0 || (s.total_seconds ?? 0) > 120,
+            s.error_turns > 0 || s.tool_errors >= 3 || (s.total_seconds ?? 0) > 120,
         )
         .slice(0, 20);
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 1) }] };

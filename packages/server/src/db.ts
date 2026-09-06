@@ -128,8 +128,15 @@ export const upsertEvent = db.prepare(`
 // TrueForge wraps MCP tool failures as a content string starting with {"error"
 // (prefix match, not %error%, so tool output that merely quotes an error is
 // not flagged). Other adapters set a normalized raw.error flag instead.
+// A tool the user declined is a choice, not a failure, so those are excluded.
 // `s` is the sessions row of the enclosing query.
-const TOOL_ERROR = `e.type = 'tool.response' AND (json_extract(e.raw,'$.error') = 1 OR (s.source = 'trueforge' AND json_extract(e.raw,'$.content') LIKE '{"error"%'))`;
+const DENIED = `(json_extract(e.raw,'$.content') LIKE '%Permission for this action was denied%'
+  OR json_extract(e.raw,'$.content') LIKE '%doesn''t want to proceed%'
+  OR json_extract(e.raw,'$.content') LIKE '%[Request interrupted%'
+  OR json_extract(e.raw,'$.content') LIKE '%rejected%')`;
+const TOOL_ERROR = `e.type = 'tool.response'
+  AND (json_extract(e.raw,'$.error') = 1 OR (s.source = 'trueforge' AND json_extract(e.raw,'$.content') LIKE '{"error"%'))
+  AND NOT ${DENIED}`;
 
 // Per-session rollup: turn counts/status, duration, tokens, tool calls.
 export function sessionSummaries() {
@@ -149,6 +156,7 @@ export function sessionSummaries() {
        ORDER BY e.created_at ASC LIMIT 1) AS approval_since,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response') AS tool_calls,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND ${TOOL_ERROR}) AS tool_errors,
+      (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response' AND ${DENIED}) AS tool_denials,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'thread.created') AS subagents,
       (SELECT SUM(json_extract(e.raw,'$.usage.inputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS input_tokens,
       (SELECT SUM(json_extract(e.raw,'$.usage.outputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS output_tokens,
@@ -184,11 +192,8 @@ export function agentSummaries() {
       `
     SELECT agent_name,
       COUNT(*) AS sessions,
-      SUM(
-        ((SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.status='error') > 0)
-        OR
-        ((SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND ${TOOL_ERROR}) > 0)
-      ) AS sessions_with_errors
+      SUM((SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.status='error') > 0) AS sessions_with_errors,
+      SUM((SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND ${TOOL_ERROR}) > 0) AS sessions_with_tool_errors
     FROM sessions s GROUP BY agent_name ORDER BY sessions DESC
   `,
     )

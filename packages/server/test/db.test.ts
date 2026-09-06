@@ -22,6 +22,30 @@ test("pending_approvals reflects only the newest turn", () => {
   assert.equal(summary("s-waiting").pending_approvals, 2);
 });
 
+test("declined tools count as denials, not errors", () => {
+  seedSession("s-denied", {
+    source: "claude-code",
+    events: [
+      { id: "d1", type: "tool.response", raw: { content: "Permission for this action was denied by the hook", error: true } },
+      { id: "d2", type: "tool.response", raw: { content: "The user doesn't want to proceed with this tool use.", error: true } },
+      { id: "d3", type: "tool.response", raw: { content: "ENOENT: no such file", error: true } },
+    ],
+  });
+  const s = summary("s-denied");
+  assert.equal(s.tool_calls, 3);
+  assert.equal(s.tool_errors, 1);
+  assert.equal(s.tool_denials, 2);
+});
+
+test("agentSummaries separates failed turns from tool errors", () => {
+  seedSession("s-agg-fail", { agent: "agg", turns: [{ id: "af1", status: "error" }] });
+  seedSession("s-agg-tool", { agent: "agg", events: [{ id: "at1", type: "tool.response", raw: { content: "boom", error: true } }] });
+  const row = agentSummaries().find((a: any) => a.agent_name === "agg") as any;
+  assert.equal(row.sessions, 2);
+  assert.equal(row.sessions_with_errors, 1);
+  assert.equal(row.sessions_with_tool_errors, 1);
+});
+
 test("tool_errors counts only content with an error prefix", () => {
   seedSession("s-tools", {
     events: [
@@ -122,7 +146,7 @@ test("agentSummaries counts sessions and those with errors", () => {
   assert.equal(investigator.sessions_with_errors, 1);
 });
 
-test("agentSummaries counts tool-error sessions as having errors", () => {
+test("agentSummaries reports tool-error sessions separately from failed turns", () => {
   seedSession("s-toolerr", {
     agent: "flaky-agent",
     turns: [{ id: "tf1" }],
@@ -130,7 +154,8 @@ test("agentSummaries counts tool-error sessions as having errors", () => {
   });
   const flaky = (agentSummaries() as any[]).find((a) => a.agent_name === "flaky-agent");
   assert.equal(flaky.sessions, 1);
-  assert.equal(flaky.sessions_with_errors, 1);
+  assert.equal(flaky.sessions_with_errors, 0, "no turn failed");
+  assert.equal(flaky.sessions_with_tool_errors, 1);
 });
 
 test("source defaults to trueforge and is returned in summaries", () => {
