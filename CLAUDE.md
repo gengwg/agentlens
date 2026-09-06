@@ -44,7 +44,7 @@ one level deep; share the root's MCP tools/sandbox; their approval-requiring too
 calls still pause for the user.
 
 Docs: https://trueforge.dev (index at https://trueforge.dev/llms.txt),
-API reference at https://trueforge.dev/api-reference/, OpenAPI at /openapi.json.
+API reference at https://trueforge.dev/api-reference/, OpenAPI at /api/v1/openapi.json.
 
 ## Conventions
 

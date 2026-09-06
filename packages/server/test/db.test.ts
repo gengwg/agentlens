@@ -97,3 +97,14 @@ test("agentSummaries counts sessions and those with errors", () => {
   assert.equal(investigator.sessions, 2);
   assert.equal(investigator.sessions_with_errors, 1);
 });
+
+test("agentSummaries counts tool-error sessions as having errors", () => {
+  seedSession("s-toolerr", {
+    agent: "flaky-agent",
+    turns: [{ id: "tf1" }],
+    events: [{ id: "ef1", type: "tool.response", raw: { content: '{"error":"down"}' } }],
+  });
+  const flaky = (agentSummaries() as any[]).find((a) => a.agent_name === "flaky-agent");
+  assert.equal(flaky.sessions, 1);
+  assert.equal(flaky.sessions_with_errors, 1);
+});
