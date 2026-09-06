@@ -68,6 +68,7 @@ event vocabulary, so the store, the MCP tools, and the trace view are shared.
 | `OPENCODE_DB` | `~/.local/share/opencode/opencode.db` |
 | `TRUEFORGE_URL` | `http://localhost:8790` |
 | `AGENTLENS_DB` | `agentlens.db` |
+| `PORT`, `MCP_PORT` | `8788`, `8791` |
 
 Claude Code sessions are read from the JSONL transcripts (tail with per-file
 cursors, subagent transcripts become threads); OpenCode is polled read-only

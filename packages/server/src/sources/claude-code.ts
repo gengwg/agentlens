@@ -58,6 +58,13 @@ const setTitle = db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`);
 const closeTurn = db.prepare(
   `UPDATE turns SET status = CASE WHEN status = 'error' THEN 'error' ELSE ? END, completed_at = ? WHERE id = ?`,
 );
+// A turn ended by the next prompt (no turn_duration record) ends at its last
+// event, not at the prompt, so idle time is not counted as duration.
+const closeAtLastEvent = db.prepare(`
+  UPDATE turns SET status = CASE WHEN status = 'error' THEN 'error' ELSE 'done' END,
+    completed_at = COALESCE((SELECT MAX(created_at) FROM events e WHERE e.turn_id = turns.id), ?)
+  WHERE id = ?
+`);
 const failTurn = db.prepare(`UPDATE turns SET status = 'error', error = ? WHERE id = ?`);
 const turnStatus = db.prepare(`SELECT status FROM turns WHERE id = ?`);
 
@@ -68,6 +75,14 @@ const textOf = (content: any): string => {
     .map((b: any) => (b.type === "text" ? b.text : b.type === "image" ? "[image]" : ""))
     .filter(Boolean)
     .join("\n");
+};
+
+// Slash commands arrive as XML-ish blocks; show "/name args" instead.
+const titleOf = (text: string): string => {
+  const m = text.match(/^<command-name>([^<]*)<\/command-name>/);
+  if (!m) return text.slice(0, 80);
+  const args = text.match(/<command-args>([^<]*)<\/command-args>/)?.[1].trim();
+  return `${m[1].trim()}${args ? ` ${args}` : ""}`.slice(0, 80);
 };
 
 const isPrompt = (r: any) =>
@@ -130,8 +145,8 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
         state.turn_id = undefined;
         continue;
       }
-      if (state.turn_id) closeTurn.run("done", at, state.turn_id);
-      state.first_prompt ??= text.slice(0, 80);
+      if (state.turn_id) closeAtLastEvent.run(at, state.turn_id);
+      state.first_prompt ??= titleOf(text);
       openTurn(ctx, state, r.uuid, at);
       event(ctx, state.turn_id!, eid(ctx, r.uuid), "turn.created", at, {
         input: [{ type: "user.message", content: text }],
