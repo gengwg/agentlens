@@ -110,3 +110,22 @@ Surprises:
 - Killed processes leave turns running forever; a sweep closes turns idle for
   10 minutes on local sources.
 
+## 2026-09-06 - dsh, an ingest API, and experimental adapters
+
+What: a dsh adapter built against real logs, `POST /api/ingest` for any harness
+that can speak JSON, and experimental adapters for Codex CLI, Gemini CLI, Roo
+Code, and Cline written from their public formats with synthetic tests.
+
+Why: a scan of the team's repos showed Claude Code, OpenCode, Roo Code, and
+Cursor configs, with Gemini, Codex, Copilot, and Kimi mentioned. Only dsh had
+logs on the build machine, so the ingest API is the escape hatch for the rest
+and the first step toward a shared server.
+
+Surprises:
+- dsh appends one zstd frame per record. Node's zstd decoder (one-shot and
+  streaming) returns only the first frame, so the adapter splits on frame
+  magics and merges chunks that fail to decode.
+- Gemini CLI rewrites the whole chat JSON; Roo Code keeps token usage in a
+  separate ui_messages.json and, on the XML tool protocol, tool calls are
+  markup inside the assistant text.
+
