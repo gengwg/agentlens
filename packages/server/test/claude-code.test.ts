@@ -69,6 +69,15 @@ test("claude-code: maps a transcript into turns and events", () => {
   assert.equal(sessionTrace("cc-s1").events.length, 7);
 });
 
+test("claude-code: slash-command prompts become readable titles", () => {
+  const recs = [
+    { ...user("c1", 0, "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>PR 24</command-args>"), sessionId: "cc-s5" },
+    { ...assistant("c2", 1, "mc1", { type: "text", text: "ok" }), sessionId: "cc-s5" },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-s5", threadId: null }, recs, { offset: 0 }))();
+  assert.equal(sessionSummaries().find((x) => x.id === "cc-s5")!.title, "/review PR 24");
+});
+
 test("claude-code: interrupted prompt cancels the open turn without a new one", () => {
   const state = { offset: 0 };
   const recs = [
@@ -98,6 +107,14 @@ test("claude-code: isMeta prompt after a closed turn starts a turn; orphan outpu
     ["cc:cc-s4:q4", "done"],
     ["cc:cc-s4:q7", "running"],
   ]);
+  // q7's implicit predecessor close: none here, but a prompt-closed turn ends at its last event
+  const recs2 = [
+    { ...user("r1", 0, "a"), sessionId: "cc-s6" },
+    { ...assistant("r2", 1, "mr1", { type: "text", text: "b" }), sessionId: "cc-s6" },
+    { ...user("r3", 30, "c"), sessionId: "cc-s6" },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-s6", threadId: null }, recs2, { offset: 0 }))();
+  assert.equal((sessionTrace("cc-s6").turns[0] as any).completed_at, T(1));
   assert.equal(t.events.filter((e) => e.type === "model.message").length, 3);
 });
 

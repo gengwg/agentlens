@@ -11,6 +11,7 @@ import type { Source } from "./types.js";
 
 const SOURCE = "opencode";
 const OVERLAP_MS = 5000;
+const MAX_TOOL_OUTPUT = 64 * 1024;
 const iso = (ms: number) => new Date(ms).toISOString();
 
 const insertTurn = db.prepare(
@@ -112,7 +113,7 @@ export function createOpenCode(src: Database): Source {
         type: "tool.response",
         created_at: iso(st.time?.end ?? p.time_updated),
         raw: JSON.stringify({
-          content: String(st.output ?? st.error ?? ""),
+          content: String(st.output ?? st.error ?? "").slice(0, MAX_TOOL_OUTPUT),
           toolCallId: p.data.callID,
           error: st.status === "error",
         }),
