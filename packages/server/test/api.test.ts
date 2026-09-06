@@ -53,3 +53,20 @@ test("CORS allows the dashboard origin and rejects others", async () => {
   });
   assert.equal(blocked.headers.get("access-control-allow-origin"), null);
 });
+
+test("GET /api/sources lists configured sources", async () => {
+  const res = await app.request("/api/sources");
+  assert.equal(res.status, 200);
+  assert.ok(Array.isArray(await res.json()));
+});
+
+test("TrueForge-only routes refuse when TrueForge is not connected", async () => {
+  seedSession("s-cc", { source: "claude-code", turns: [{ id: "t-cc", status: "running" }] });
+  assert.equal((await app.request("/api/sessions/s-cc/turns/t-cc/live")).status, 404);
+  assert.equal((await app.request("/api/investigate", { method: "POST", body: "{}" })).status, 503);
+  const approve = await app.request("/api/sessions/s-cc/approve", {
+    method: "POST",
+    body: JSON.stringify({ tool_call_id: "x" }),
+  });
+  assert.equal(approve.status, 503);
+});

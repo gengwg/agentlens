@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { client } from "./collector.js";
-import { agentSummaries, db, sessionSummaries, sessionTrace } from "./db.js";
+import { agentSummaries, db, sessionSource, sessionSummaries, sessionTrace } from "./db.js";
+import { active } from "./sources/index.js";
+import { client, trueforgeOk } from "./sources/trueforge.js";
 
 export const app = new Hono();
 // Local demo tool: only the dashboard (and same-origin/non-browser clients,
@@ -18,10 +19,17 @@ app.get("/api/reports", (c) =>
 );
 app.get("/api/sessions", (c) => c.json(sessionSummaries()));
 app.get("/api/sessions/:id", (c) => c.json(sessionTrace(c.req.param("id"))));
+app.get("/api/sources", (c) => c.json(active.map((s) => ({ name: s.name, ...s.status() }))));
 
-// Live tail: proxy TrueForge's per-turn SSE stream to the browser.
-app.get("/api/sessions/:id/turns/:turnId/live", (c) =>
-  streamSSE(c, async (stream) => {
+const isTrueforge = (id: string) =>
+  (sessionSource.get(id) as { source: string } | undefined)?.source === "trueforge";
+
+// Live tail: proxy TrueForge's per-turn SSE stream to the browser. Other
+// sources have no push API; the dashboard's poll covers them.
+app.get("/api/sessions/:id/turns/:turnId/live", (c) => {
+  if (!isTrueforge(c.req.param("id")) || !trueforgeOk())
+    return c.json({ error: "live tail is TrueForge-only" }, 404);
+  return streamSSE(c, async (stream) => {
     const events = await client.sessions.subscribeToTurn(
       c.req.param("id"),
       c.req.param("turnId"),
@@ -30,11 +38,12 @@ app.get("/api/sessions/:id/turns/:turnId/live", (c) =>
       await stream.writeSSE({ data: JSON.stringify(ev) });
       if ((ev as any).type === "turn.done") break;
     }
-  }),
-);
+  });
+});
 
 // Kick off the investigator agent on a suspect session.
 app.post("/api/investigate", async (c) => {
+  if (!trueforgeOk()) return c.json({ error: "TrueForge not reachable" }, 503);
   const { session_id } = await c.req.json().catch(() => ({}) as any);
   const { data: session } = await client.sessions.create({
     agent: { name: "investigator" },
@@ -50,6 +59,7 @@ app.post("/api/investigate", async (c) => {
 
 // Approve or deny the investigator's pending tool call (human-in-the-loop gate).
 app.post("/api/sessions/:id/approve", async (c) => {
+  if (!trueforgeOk()) return c.json({ error: "TrueForge not reachable" }, 503);
   let body: { tool_call_id?: string; thread_id?: string; allow?: boolean };
   try {
     body = await c.req.json();

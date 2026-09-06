@@ -1,10 +1,21 @@
 // Owns every src import so AGENTLENS_DB is set before db.ts opens a handle.
 process.env.AGENTLENS_DB = ":memory:";
 
-export const { db, agentSummaries, sessionSummaries, sessionTrace, upsertSession, upsertTurn, insertEvent } =
-  await import("../src/db.ts");
+export const {
+  db,
+  agentSummaries,
+  sessionSummaries,
+  sessionTrace,
+  upsertSession,
+  upsertTurn,
+  insertEvent,
+  upsertEvent,
+  getCursor,
+  setCursor,
+  sweepStaleTurns,
+} = await import("../src/db.ts");
 export const { app } = await import("../src/api.ts");
-export const { turnRow } = await import("../src/collector.ts");
+export const { turnRow } = await import("../src/sources/trueforge.ts");
 
 type TurnSpec = {
   id: string;
@@ -25,15 +36,16 @@ type EventSpec = {
 
 export function seedSession(
   id: string,
-  opts: { agent?: string; turns?: TurnSpec[]; events?: EventSpec[] } = {},
+  opts: { agent?: string; source?: string; updated_at?: string; turns?: TurnSpec[]; events?: EventSpec[] } = {},
 ) {
   upsertSession.run({
     id,
     agent_name: opts.agent ?? "demo",
     title: `session ${id}`,
     created_at: "2026-09-01T00:00:00Z",
-    updated_at: "2026-09-01T00:00:00Z",
+    updated_at: opts.updated_at ?? "2026-09-01T00:00:00Z",
     created_by: "test",
+    source: opts.source ?? "trueforge",
   });
   for (const t of opts.turns ?? []) {
     upsertTurn.run({
