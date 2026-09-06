@@ -40,10 +40,16 @@ export function App() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [filter, setFilter] = useState<"errors" | "approval" | null>(null);
 
+  // Push so the browser's Back returns to the fleet view; popstate syncs state.
   const setSelected = (id: string | null) => {
     select(id);
-    history.replaceState(null, "", id ? `?session=${id}` : location.pathname);
+    history.pushState(null, "", id ? `?session=${id}` : location.pathname);
   };
+  useEffect(() => {
+    const onPop = () => select(new URLSearchParams(location.search).get("session"));
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
 
   const refresh = () => {
     Promise.all([api.sessions(), api.reports(), api.sources()])
