@@ -54,12 +54,14 @@ export function createOpenCode(src: Database): Source {
 
   // Child sessions can nest; events always land on the root session.
   function rootOf(id: string): string | undefined {
+    const start = id;
     for (let i = 0; i < 10; i++) {
       const s = getSession.get(id) as { id: string; parent_id: string | null } | undefined;
       if (!s) return undefined;
       if (!s.parent_id) return s.id;
       id = s.parent_id;
     }
+    console.error(`opencode: session ${start} nests deeper than 10 parents; skipped`);
     return undefined;
   }
 

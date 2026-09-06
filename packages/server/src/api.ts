@@ -32,8 +32,8 @@ app.post("/api/ingest", async (c) => {
   } catch {
     return c.json({ error: "invalid JSON body" }, 400);
   }
-  const source = typeof body?.source === "string" && /^[a-z0-9][a-z0-9_.-]{0,31}$/i.test(body.source) ? body.source : null;
-  if (!source) return c.json({ error: "source is required (letters, digits, - _ .)" }, 400);
+  const source = typeof body?.source === "string" && /^[a-z0-9_.-]{1,32}$/i.test(body.source) ? body.source : null;
+  if (!source) return c.json({ error: "source is required: 1-32 characters from letters, digits, - _ ." }, 400);
   const sessions: any[] = body.sessions ?? [];
   const turns: any[] = body.turns ?? [];
   const events: any[] = body.events ?? [];
