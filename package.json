@@ -10,6 +10,7 @@
   },
   "scripts": {
     "start": "npm run build -w packages/web && npm start -w packages/server",
+    "build": "npm run build -w packages/web && npm run build -w packages/server",
     "test": "npm test -w packages/server"
   }
 }

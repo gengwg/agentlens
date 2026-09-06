@@ -163,3 +163,16 @@ no failed turn at all, and the two most common "errors" were permission denials
 and user rejections. Splitting the two signals leaves 4 sessions with failed
 turns and 84 with real tool errors.
 
+## 2026-09-06 - Published to npm
+
+What: `packages/server` is now the publishable `@gengwg/agentlens`, compiled to
+JavaScript with `tsc` and shipping the built dashboard next to it, exposed as an
+`agentlens` binary. `npx @gengwg/agentlens` starts the whole thing.
+
+Why: clone, install, start was three steps and a checkout nobody wanted. The
+tool is for colleagues on other machines, so it had to be installable.
+
+Notes: the compiled server looks for the dashboard next to itself first and
+falls back to the monorepo path, so the same entry point serves both. The
+tarball is 96 KB; `better-sqlite3` fetches its own native binary at install.
+

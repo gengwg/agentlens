@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +14,11 @@ startCollector(detectSources());
 startMcpServer(Number(process.env.MCP_PORT ?? 8791));
 
 // Serve the built dashboard from the same process so one URL is enough.
-// serveStatic resolves `root` against cwd, so translate from this file's path.
-const dist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "web", "dist");
-if (existsSync(dist)) {
+// Bundled next to the compiled server when published, built in place in the repo.
+const here = dirname(fileURLToPath(import.meta.url));
+const dist = [join(here, "web"), join(here, "..", "..", "web", "dist")].find(existsSync);
+if (dist) {
+  // serveStatic resolves `root` against cwd, so translate from this file's path.
   app.use("/*", serveStatic({ root: relative(process.cwd(), dist) || "." }));
 } else {
   console.log("dashboard not built (npm run build -w packages/web); API only");

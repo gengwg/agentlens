@@ -39,12 +39,19 @@ Agent specs (investigator plus two demo agents) are defined in
 Needs Node 22+.
 
 ```
+npx @gengwg/agentlens
+```
+
+Or from a clone, which is what you want for development:
+
+```
 git clone https://github.com/gengwg/agentlens && cd agentlens
 npm install
 npm start
 ```
 
-Open http://localhost:8788. Your existing Claude Code, OpenCode, and dsh
+Open http://localhost:8788. The package pulls in `better-sqlite3`, which
+downloads a prebuilt native binary (or compiles one) during install. Your existing Claude Code, OpenCode, and dsh
 sessions show up within seconds, and running ones update live. Everything stays on your
 machine: the server binds to loopback and reads the logs in place.
 
