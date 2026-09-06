@@ -23,6 +23,8 @@ function laneOf(ev: TraceEvent): "input" | "model" | "tools" {
   return "input";
 }
 
+export type Filter = "errors" | "toolErrors" | "approval" | null;
+
 function StatusDot({ status }: { status: string }) {
   return <span className={`dot ${status}`} title={status} />;
 }
@@ -38,7 +40,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
-  const [filter, setFilter] = useState<"errors" | "approval" | null>(null);
+  const [filter, setFilter] = useState<Filter>(null);
 
   // Push so the browser's Back returns to the fleet view; popstate syncs state.
   const setSelected = (id: string | null) => {
@@ -46,7 +48,7 @@ export function App() {
     history.pushState(null, "", id ? `?session=${id}` : location.pathname);
   };
   // Stat pills filter the fleet, so they also leave an open trace.
-  const pickFilter = (f: "errors" | "approval" | null) => {
+  const pickFilter = (f: Filter) => {
     setFilter(f);
     if (selected) setSelected(null);
   };
@@ -90,9 +92,10 @@ export function App() {
   const tfOk = sources.some((s) => s.name === "trueforge" && s.ok);
 
   const totals = useMemo(() => {
-    const t = { sessions: sessions.length, errors: 0, tokens: 0, tools: 0, approvals: 0 };
+    const t = { sessions: sessions.length, errors: 0, toolErrors: 0, tokens: 0, tools: 0, approvals: 0 };
     for (const s of sessions) {
-      if (s.error_turns > 0 || s.tool_errors > 0) t.errors++;
+      if (s.error_turns > 0) t.errors++;
+      if (s.tool_errors > 0) t.toolErrors++;
       if (s.pending_approvals > 0) t.approvals++;
       t.tokens += (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
       t.tools += s.tool_calls;
@@ -114,11 +117,17 @@ export function App() {
             onClick={() => pickFilter(null)}
           />
           <Stat
-            label="with errors"
+            label="failed turns"
             value={String(totals.errors)}
             alert={totals.errors > 0}
             active={filter === "errors"}
             onClick={() => pickFilter(filter === "errors" ? null : "errors")}
+          />
+          <Stat
+            label="tool errors"
+            value={String(totals.toolErrors)}
+            active={filter === "toolErrors"}
+            onClick={() => pickFilter(filter === "toolErrors" ? null : "toolErrors")}
           />
           <Stat
             label="need approval"
@@ -132,7 +141,7 @@ export function App() {
         </div>
         {filter && (
           <button className="chip" onClick={() => setFilter(null)}>
-            filter: {filter} &times;
+            filter: {filter === "toolErrors" ? "tool errors" : filter === "errors" ? "failed turns" : filter} &times;
           </button>
         )}
         {offline && (
@@ -208,15 +217,17 @@ function SessionTable({
 }: {
   sessions: SessionSummary[];
   onSelect: (id: string) => void;
-  filter: "errors" | "approval" | null;
+  filter: Filter;
 }) {
   const [q, setQ] = useState("");
   const rows = sessions.filter(
     (s) =>
       (!filter ||
         (filter === "errors"
-          ? s.error_turns > 0 || s.tool_errors > 0
-          : s.pending_approvals > 0)) &&
+          ? s.error_turns > 0
+          : filter === "toolErrors"
+            ? s.tool_errors > 0
+            : s.pending_approvals > 0)) &&
       (!q ||
         s.source.includes(q.toLowerCase()) ||
         s.agent_name?.toLowerCase().includes(q.toLowerCase()) ||
@@ -266,7 +277,7 @@ function SessionTable({
                       ? "running"
                       : s.pending_approvals > 0
                         ? "approval"
-                        : s.error_turns > 0 || s.tool_errors > 0
+                        : s.error_turns > 0
                           ? "error"
                           : "done"
                   }
@@ -282,7 +293,10 @@ function SessionTable({
                 </div>
               </td>
               <td>{s.turn_count}</td>
-              <td>{s.tool_calls}</td>
+              <td>
+                {s.tool_calls}
+                {s.tool_errors > 0 && <span className="errCount" title={`${s.tool_errors} failed`}> {s.tool_errors}!</span>}
+              </td>
               <td>{s.subagents}</td>
               <td>{fmtTokens((s.input_tokens ?? 0) + (s.output_tokens ?? 0))}</td>
               <td>{fmtDur(s.total_seconds)}</td>
