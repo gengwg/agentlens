@@ -69,7 +69,7 @@ async function main() {
 
   await ensureMcpServer(
     "agentlens",
-    "http://localhost:8791/mcp",
+    `http://localhost:${process.env.MCP_PORT ?? 8791}/mcp`,
     "AgentLens observability: query sessions, traces, fleet metrics; publish incident reports.",
   );
   // Intentionally unreachable server so demo traffic produces real failures.

@@ -69,6 +69,15 @@ test("claude-code: maps a transcript into turns and events", () => {
   assert.equal(sessionTrace("cc-s1").events.length, 7);
 });
 
+test("claude-code: slash-command prompts become readable titles", () => {
+  const recs = [
+    { ...user("c1", 0, "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>PR 24</command-args>"), sessionId: "cc-s5" },
+    { ...assistant("c2", 1, "mc1", { type: "text", text: "ok" }), sessionId: "cc-s5" },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-s5", threadId: null }, recs, { offset: 0 }))();
+  assert.equal(sessionSummaries().find((x) => x.id === "cc-s5")!.title, "/review PR 24");
+});
+
 test("claude-code: interrupted prompt cancels the open turn without a new one", () => {
   const state = { offset: 0 };
   const recs = [
@@ -98,7 +107,59 @@ test("claude-code: isMeta prompt after a closed turn starts a turn; orphan outpu
     ["cc:cc-s4:q4", "done"],
     ["cc:cc-s4:q7", "running"],
   ]);
+  // q7's implicit predecessor close: none here, but a prompt-closed turn ends at its last event
+  const recs2 = [
+    { ...user("r1", 0, "a"), sessionId: "cc-s6" },
+    { ...assistant("r2", 1, "mr1", { type: "text", text: "b" }), sessionId: "cc-s6" },
+    { ...user("r3", 30, "c"), sessionId: "cc-s6" },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-s6", threadId: null }, recs2, { offset: 0 }))();
+  assert.equal((sessionTrace("cc-s6").turns[0] as any).completed_at, T(1));
   assert.equal(t.events.filter((e) => e.type === "model.message").length, 3);
+});
+
+test("claude-code: compact summaries do not open turns; swept turns reopen on new output", () => {
+  const recs = [
+    { ...user("k1", 0, "go"), sessionId: "cc-s7" },
+    { ...assistant("k2", 1, "mk1", { type: "text", text: "working" }), sessionId: "cc-s7" },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-s7", threadId: null }, recs, { offset: 0 }))();
+  // simulate the stale sweep closing the turn during a long tool run
+  db.prepare(`UPDATE turns SET status='done', completed_at=? WHERE id='cc:cc-s7:k1'`).run(T(1));
+  const more = [
+    { ...user("k3", 2, [{ type: "tool_result", tool_use_id: "x", content: "late result" }]), sessionId: "cc-s7" },
+  ];
+  const state = { offset: 0, turn_id: "cc:cc-s7:k1", msg_id: "mk1" };
+  db.transaction(() => ingestRecords({ sessionId: "cc-s7", threadId: null }, more, state))();
+  assert.deepEqual(db.prepare(`SELECT status, completed_at FROM turns WHERE id='cc:cc-s7:k1'`).get(), { status: "running", completed_at: null });
+
+  const summary = [
+    { ...user("k4", 5, "summary of earlier work", { isCompactSummary: true }), sessionId: "cc-s8" },
+    { ...user("k5", 6, "real prompt"), sessionId: "cc-s8" },
+    { ...assistant("k6", 7, "mk6", { type: "text", text: "hi" }), sessionId: "cc-s8" },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-s8", threadId: null }, summary, { offset: 0 }))();
+  assert.deepEqual(sessionTrace("cc-s8").turns.map((t: any) => t.id), ["cc:cc-s8:k5"]);
+});
+
+test("claude-code: a resumed subagent follows the parent turn that resumed it", () => {
+  const parent = [
+    { ...user("p1", 0, "first"), sessionId: "cc-s9" },
+    { ...assistant("p2", 1, "mp1", { type: "text", text: "spawning" }), sessionId: "cc-s9" },
+    { ...user("p3", 10, "second"), sessionId: "cc-s9" },
+    { ...assistant("p4", 11, "mp2", { type: "text", text: "resuming agent" }), sessionId: "cc-s9" },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-s9", threadId: null }, parent, { offset: 0 }))();
+  const sub = [
+    user("s1", 2, "task one"),
+    assistant("s2", 3, "ms1", { type: "text", text: "done one" }),
+    user("s3", 12, "task two"),
+    assistant("s4", 13, "ms2", { type: "text", text: "done two" }),
+  ].map((r) => ({ ...r, sessionId: "cc-s9" }));
+  db.transaction(() => ingestRecords({ sessionId: "cc-s9", threadId: "agentZ" }, sub, { offset: 0, turn_id: "cc:cc-s9:p1" }))();
+  const t = sessionTrace("cc-s9");
+  assert.equal(t.events.find((e) => e.id === "cc:cc-s9:s2")!.turn_id, "cc:cc-s9:p1");
+  assert.equal(t.events.find((e) => e.id === "cc:cc-s9:s4")!.turn_id, "cc:cc-s9:p3");
 });
 
 test("claude-code: subagent records land on the parent turn as a thread", () => {

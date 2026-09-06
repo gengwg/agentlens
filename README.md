@@ -33,26 +33,19 @@ Agent specs (investigator plus two demo agents) are defined in
 
 Needs Node 22+.
 
-1. `npm install`
-2. `npm run dev -w packages/server` (API :8788, MCP server :8791)
-3. `npm run dev -w packages/web` (dashboard at http://localhost:5173)
+```
+git clone https://github.com/gengwg/agentlens && cd agentlens
+npm install
+npm start
+```
 
-Your existing Claude Code and OpenCode sessions show up within seconds, and
-running ones update live. Everything stays on your machine: the server binds to
-loopback and reads the logs in place.
+Open http://localhost:8788. Your existing Claude Code and OpenCode sessions
+show up within seconds, and running ones update live. Everything stays on your
+machine: the server binds to loopback and reads the logs in place.
 
-To also run TrueForge agents and the investigator (needs `bwrap`, `socat`, and
-`rg` on the host for the sandbox):
-
-4. `npx @truefoundry/trueforge` (TrueForge at http://localhost:8790)
-5. Add a model provider (TrueForge UI settings, or the API).
-6. `SANDBOX=1 npm run seed -w packages/server` registers the AgentLens MCP
-   server in TrueForge, creates the investigator plus two demo agents (one wired
-   to a dead MCP server so failures exist), and generates demo traffic.
-
-Click "Investigate fleet" in the dashboard. The investigator finds the failing
-sessions (from any harness), fans out subagents, drafts an incident report, and
-pauses on the approval gate; Allow publishes the report to the dashboard.
+For development, run the API and the Vite dev server separately:
+`npm run dev -w packages/server` (:8788, MCP :8791) and
+`npm run dev -w packages/web` (http://localhost:5173).
 
 ## Sources
 
@@ -68,6 +61,7 @@ event vocabulary, so the store, the MCP tools, and the trace view are shared.
 | `OPENCODE_DB` | `~/.local/share/opencode/opencode.db` |
 | `TRUEFORGE_URL` | `http://localhost:8790` |
 | `AGENTLENS_DB` | `agentlens.db` |
+| `PORT`, `MCP_PORT` | `8788`, `8791` |
 
 Claude Code sessions are read from the JSONL transcripts (tail with per-file
 cursors, subagent transcripts become threads); OpenCode is polled read-only
@@ -108,6 +102,24 @@ The store and UI are harness-neutral. Adapters exist for TrueForge, Claude Code,
 and OpenCode; each new harness is one file under `packages/server/src/sources/`.
 A shared company server (per-machine shippers pushing to one AgentLens) is the
 next step and is not built yet.
+
+## Optional: investigator agent
+
+The investigator is a TrueForge agent that triages failed or slow sessions from
+any harness using the AgentLens MCP tools, parallel subagents, sandboxed
+analysis, and an approval gate before publishing its incident report. The
+sandbox needs `bwrap`, `socat`, and `rg` on the host.
+
+1. `npx @truefoundry/trueforge` (TrueForge at http://localhost:8790)
+2. Add a model provider (TrueForge UI settings, or the API).
+3. `SANDBOX=1 npm run seed -w packages/server` registers the AgentLens MCP
+   server in TrueForge, creates the investigator plus two demo agents (one wired
+   to a dead MCP server so failures exist), and generates demo traffic.
+
+Click "Investigate fleet" in the dashboard. The investigator finds the failing
+sessions, fans out subagents, drafts an incident report, and pauses on the
+approval gate; Allow publishes the report to the dashboard. Trace excerpts are
+sent to the model provider configured in TrueForge.
 
 ## Links
 

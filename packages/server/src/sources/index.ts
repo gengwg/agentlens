@@ -27,17 +27,22 @@ export function detectSources(env = process.env): Source[] {
 
   const sources: Source[] = [];
   for (const name of wanted) {
-    if (name === "claude-code") {
-      sources.push(createClaudeCode(projectsDir));
-      console.log(`source claude-code: ${projectsDir}`);
-    } else if (name === "opencode") {
-      sources.push(createOpenCode(new Database(opencodeDb, { readonly: true, fileMustExist: true })));
-      console.log(`source opencode: ${opencodeDb}`);
-    } else if (name === "trueforge") {
-      sources.push(trueforgeSource);
-      console.log(`source trueforge: ${TRUEFORGE_URL}`);
-    } else {
-      console.error(`unknown source "${name}" in AGENTLENS_SOURCES, skipping`);
+    try {
+      if (name === "claude-code") {
+        sources.push(createClaudeCode(projectsDir));
+        console.log(`source claude-code: ${projectsDir}`);
+      } else if (name === "opencode") {
+        sources.push(createOpenCode(new Database(opencodeDb, { readonly: true, fileMustExist: true })));
+        console.log(`source opencode: ${opencodeDb}`);
+      } else if (name === "trueforge") {
+        sources.push(trueforgeSource);
+        console.log(`source trueforge: ${TRUEFORGE_URL}`);
+      } else {
+        console.error(`unknown source "${name}" in AGENTLENS_SOURCES, skipping`);
+      }
+    } catch (err) {
+      // e.g. an OpenCode schema this adapter does not know; keep the rest running
+      console.error(`source ${name} disabled: ${(err as Error).message}`);
     }
   }
   active = sources;
