@@ -78,3 +78,35 @@ break if a column and the object shape disagree.
 
 Skipped the dashboard: testing `App.tsx` needs vitest + jsdom + testing-library,
 three dependencies for the one surface we judge by looking at it.
+
+## 2026-09-06 - Claude Code and OpenCode sources
+
+What: the collector is now a loop over source adapters (`src/sources/`). Claude
+Code is tailed from its JSONL transcripts with per-file byte cursors, OpenCode
+is polled read-only from its SQLite database, TrueForge moved into an adapter
+and became optional. Sessions carry a `source`; the UI shows it and only offers
+Investigate/Approve/live tail when TrueForge is connected.
+
+Why: the team uses several harnesses. Translating each into the event
+vocabulary the store and trace view already understood (turn.created,
+model.message, tool.response, thread.created, turn.done) was a fraction of the
+work of making the store generic, and the investigator's MCP tools got the new
+sessions for free.
+
+Surprises:
+- Claude Code splits one API message across several JSONL records (thinking,
+  text, tool_use), each repeating the same usage. Counting per record inflated
+  tokens 2-3x; usage now rides on the first rendered record of a message.
+- Forked and resumed sessions copy the parent's history with identical record
+  uuids. Event ids had to be namespaced by session or INSERT OR IGNORE silently
+  dropped the whole fork.
+- `promptId` is not unique per prompt; the prompt record's uuid is the turn id.
+- Remote-control sessions flag real prompts `isMeta`, the same flag used for
+  injected skill content. It now only suppresses a prompt while a turn is open,
+  and model output with no open turn opens one rather than being dropped.
+- OpenCode mutates message and part rows in place as a step runs, so its events
+  are upserted and the cursor overlaps by 5s. A new prompt aborts the previous
+  turn without a marker; the next prompt closes it.
+- Killed processes leave turns running forever; a sweep closes turns idle for
+  10 minutes on local sources.
+
