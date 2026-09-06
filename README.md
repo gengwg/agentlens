@@ -104,6 +104,7 @@ curl -X POST localhost:8788/api/ingest -H 'content-type: application/json' -d '{
 ```
 
 Ids are yours and must be unique across sessions; resending is idempotent.
+`source` is 1-32 characters from letters, digits, `-`, `_`, `.`.
 Turn `status` is `running`, `done`, `error`, or `cancelled`. Event types the
 dashboard renders: `turn.created`, `model.message`, `tool.response`,
 `thread.created` (`raw.title`, with `thread_id` on the thread's events), and
