@@ -42,22 +42,25 @@ Needs Node 22+.
 npx @gengwg/agentlens
 ```
 
-Or from a clone, which is what you want for development:
+Open http://localhost:8788. Your existing Claude Code, OpenCode, dsh, and other
+sessions show up within seconds, and running ones update live. Everything stays
+on your machine: the server binds to loopback and reads the logs in place.
+
+The package is [@gengwg/agentlens](https://www.npmjs.com/package/@gengwg/agentlens).
+It pulls in `better-sqlite3`, which downloads a prebuilt native binary (or
+compiles one) during install.
+
+To hack on it instead, clone and run the API and dashboard separately:
 
 ```
 git clone https://github.com/gengwg/agentlens && cd agentlens
 npm install
-npm start
+npm run dev -w packages/server    # API :8788, MCP :8791
+npm run dev -w packages/web       # dashboard http://localhost:5173
 ```
 
-Open http://localhost:8788. The package pulls in `better-sqlite3`, which
-downloads a prebuilt native binary (or compiles one) during install. Your existing Claude Code, OpenCode, and dsh
-sessions show up within seconds, and running ones update live. Everything stays on your
-machine: the server binds to loopback and reads the logs in place.
-
-For development, run the API and the Vite dev server separately:
-`npm run dev -w packages/server` (:8788, MCP :8791) and
-`npm run dev -w packages/web` (http://localhost:5173).
+`npm start` from the clone builds the dashboard and serves everything on :8788,
+the same as the published package.
 
 ## Sources
 
