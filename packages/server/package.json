@@ -23,7 +23,7 @@
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   },
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Local observability for coding-agent harnesses: fleet view and trace viewer for Claude Code, OpenCode, dsh, Cursor Agent, Antigravity, TrueForge and more.",
   "license": "MIT",
   "repository": {

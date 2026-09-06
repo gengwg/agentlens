@@ -210,3 +210,12 @@ with tags, token counts and a timeline, and empty bodies.
 
 The receiver still has no authentication, so it is private-network only.
 
+## 2026-09-06 - Fitting the shared fleet table
+
+Shipped sessions carry machine-qualified agent names and no titles, which made
+the table 65px wider than its card and clipped the Updated column. The title
+fallback now drops the machine prefix from the id (the Agent column already
+names the machine), the agent cell truncates with a tooltip, and cell padding
+lost 2px a side. Measured on the shared view: 1107px to 1042px, exactly the
+card width.
+
