@@ -219,3 +219,10 @@ names the machine), the agent cell truncates with a tooltip, and cell padding
 lost 2px a side. Measured on the shared view: 1107px to 1042px, exactly the
 card width.
 
+## 2026-09-06 - The package shipped three copies of the dashboard
+
+Publishing 0.6.0 revealed that the build script copied the freshly built web
+assets into dist/web without clearing it first. Vite hashes filenames, so every
+past bundle survived: six asset files where the page references two, 230 kB
+instead of 101 kB. The copy now clears its target.
+
