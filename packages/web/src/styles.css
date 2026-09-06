@@ -73,7 +73,7 @@ tbody tr.clickable:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* trace view */
 .traceView { display: block; }
-.traceHead { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.traceHead { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 10px 0; }
 .badge.running { color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 1px 10px; font-size: 12px; animation: pulse 1.2s infinite; }
 .badge.source { color: var(--dim); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; white-space: nowrap; }
 .badge.stale { color: var(--orange); border: 1px solid var(--orange); border-radius: 10px; padding: 1px 10px; font-size: 12px; }
