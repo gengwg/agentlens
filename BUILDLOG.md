@@ -176,3 +176,17 @@ Notes: the compiled server looks for the dashboard next to itself first and
 falls back to the monorepo path, so the same entry point serves both. The
 tarball is 96 KB; `better-sqlite3` fetches its own native binary at install.
 
+## 2026-09-06 - Gemini CLI writes JSONL, not JSON
+
+Running Gemini CLI on a second machine to validate the adapter turned up two
+things. It refuses individual accounts now (IneligibleTierError, migrate to
+Antigravity), so the reply and token paths cannot be exercised at all. But the
+failed run still wrote its chat file, which revealed the adapter was reading
+the wrong format: current versions write session-*.jsonl, a header line plus
+$set patch lines carrying the whole message array, not the single JSON document
+the adapter expected. It now folds either shape into one document.
+
+A test built from the real header also caught an ordering bug: turn.done shared
+the final reply's timestamp and sorted ahead of it, so a trace ended before its
+last message. The turn now ends at the session's last write.
+
