@@ -63,11 +63,12 @@ view are shared. `AGENTLENS_SOURCES` pins the list (comma-separated names).
 | `dsh` | tested | `~/.dsh` (`DSH_HOME`) |
 | `trueforge` | tested | `http://localhost:8790` (`TRUEFORGE_URL`) |
 | `codex` | experimental | `~/.codex` (`CODEX_HOME`) |
-| `gemini` | experimental | `~/.gemini` (`GEMINI_HOME`) |
+| `gemini` | experimental | `~/.gemini` (`GEMINI_HOME`); Gemini CLI is enterprise-only since June 2026 |
 | `roo-code`, `cline` | experimental | VS Code `globalStorage` task dirs (`ROO_TASKS_DIR`) |
 
 Experimental adapters are written from the public log formats and have
 synthetic tests only; open an issue with a sample session if one misreads yours.
+Not yet supported: Antigravity CLI (Gemini CLI's successor) and Cursor.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
 (`8791`).
 
