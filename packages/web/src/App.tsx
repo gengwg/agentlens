@@ -103,7 +103,7 @@ export function App() {
   return (
     <div className="app">
       <header>
-        <h1>
+        <h1 className="clickable" title="All sessions" onClick={() => pickFilter(null)}>
           Agent<span className="accent">Lens</span>
         </h1>
         <div className="stats">
