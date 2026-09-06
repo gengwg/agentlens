@@ -1,9 +1,9 @@
 # AgentLens
 
 Local observability for coding-agent harnesses: a fleet view and trace viewer
-for every Claude Code, OpenCode, dsh, and TrueForge session on your machine
-(plus Codex CLI, Gemini CLI, Roo Code, and Cline, experimental), and an
-investigator agent that diagnoses the bad ones.
+for every Claude Code, OpenCode, dsh, Cursor Agent, Antigravity CLI, and
+TrueForge session on your machine (plus Codex CLI, Gemini CLI, Roo Code, and
+Cline, experimental), and an investigator agent that diagnoses the bad ones.
 
 Started at the Agent Harness Hackathon (WeMakeDevs + TrueFoundry, Aug 2026).
 
@@ -62,13 +62,18 @@ view are shared. `AGENTLENS_SOURCES` pins the list (comma-separated names).
 | `opencode` | tested | `~/.local/share/opencode/opencode.db` (`OPENCODE_DB`) |
 | `dsh` | tested | `~/.dsh` (`DSH_HOME`) |
 | `trueforge` | tested | `http://localhost:8790` (`TRUEFORGE_URL`) |
+| `cursor` | tested on small samples | `~/.cursor` (`CURSOR_HOME`), Cursor Agent CLI transcripts |
+| `antigravity` | tested on small samples | `~/.gemini/antigravity-cli` (`ANTIGRAVITY_HOME`) |
 | `codex` | experimental | `~/.codex` (`CODEX_HOME`) |
 | `gemini` | experimental | `~/.gemini` (`GEMINI_HOME`); Gemini CLI is enterprise-only since June 2026 |
 | `roo-code`, `cline` | experimental | VS Code `globalStorage` task dirs (`ROO_TASKS_DIR`) |
 
 Experimental adapters are written from the public log formats and have
 synthetic tests only; open an issue with a sample session if one misreads yours.
-Not yet supported: Antigravity CLI (Gemini CLI's successor) and Cursor.
+Cursor Agent transcripts record no per-message timestamps, tool results, or
+token usage, so event times are interpolated between the chat's start and end.
+Antigravity CLI records no token usage. The Cursor IDE's own chats (not the CLI)
+are not read.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
 (`8791`).
 
