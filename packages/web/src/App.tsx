@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type Report, type SessionSummary, type SourceStatus, type Trace, type TraceEvent } from "./api";
 
 const fmtTokens = (n: number | null | undefined) =>
-  n == null ? "-" : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 const fmtDur = (s: number | null | undefined) =>
   s == null ? "-" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
 const fmtAge = (iso: string | null | undefined) => {
@@ -265,7 +265,11 @@ function SessionTable({
                 <span className="badge source">{s.source}</span>
               </td>
               <td className="mono">{s.agent_name}</td>
-              <td className="dim">{s.title ?? s.id.slice(0, 18)}</td>
+              <td className="dim">
+                <div className="title" title={s.title ?? undefined}>
+                  {s.title ?? s.id.slice(0, 18)}
+                </div>
+              </td>
               <td>{s.turn_count}</td>
               <td>{s.tool_calls}</td>
               <td>{s.subagents}</td>
