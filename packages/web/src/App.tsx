@@ -45,6 +45,11 @@ export function App() {
     select(id);
     history.pushState(null, "", id ? `?session=${id}` : location.pathname);
   };
+  // Stat pills filter the fleet, so they also leave an open trace.
+  const pickFilter = (f: "errors" | "approval" | null) => {
+    setFilter(f);
+    if (selected) setSelected(null);
+  };
   useEffect(() => {
     const onPop = () => select(new URLSearchParams(location.search).get("session"));
     addEventListener("popstate", onPop);
@@ -106,21 +111,21 @@ export function App() {
             label="sessions"
             value={String(totals.sessions)}
             active={filter === null}
-            onClick={() => setFilter(null)}
+            onClick={() => pickFilter(null)}
           />
           <Stat
             label="with errors"
             value={String(totals.errors)}
             alert={totals.errors > 0}
             active={filter === "errors"}
-            onClick={() => setFilter(filter === "errors" ? null : "errors")}
+            onClick={() => pickFilter(filter === "errors" ? null : "errors")}
           />
           <Stat
             label="need approval"
             value={String(totals.approvals)}
             alert={totals.approvals > 0}
             active={filter === "approval"}
-            onClick={() => setFilter(filter === "approval" ? null : "approval")}
+            onClick={() => pickFilter(filter === "approval" ? null : "approval")}
           />
           <Stat label="tool calls" value={String(totals.tools)} />
           <Stat label="tokens" value={fmtTokens(totals.tokens)} />
