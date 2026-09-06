@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { agentSummaries, seedSession, sessionSummaries, sessionTrace } from "./fixtures.ts";
+import { agentSummaries, db, seedSession, sessionSummaries, sessionTrace, sweepStaleTurns, upsertEvent } from "./fixtures.ts";
 
 const summary = (id: string) => sessionSummaries().find((s) => s.id === id)!;
 
@@ -131,4 +131,39 @@ test("agentSummaries counts tool-error sessions as having errors", () => {
   const flaky = (agentSummaries() as any[]).find((a) => a.agent_name === "flaky-agent");
   assert.equal(flaky.sessions, 1);
   assert.equal(flaky.sessions_with_errors, 1);
+});
+
+test("source defaults to trueforge and is returned in summaries", () => {
+  seedSession("s-src-default");
+  seedSession("s-src-cc", { source: "claude-code" });
+  assert.equal(summary("s-src-default").source, "trueforge");
+  assert.equal(summary("s-src-cc").source, "claude-code");
+});
+
+test("tool_errors honors the normalized error flag", () => {
+  seedSession("s-flag", {
+    events: [
+      { id: "f1", type: "tool.response", raw: { content: "ENOENT", error: true } },
+      { id: "f2", type: "tool.response", raw: { content: "fine", error: false } },
+    ],
+  });
+  assert.equal(summary("s-flag").tool_errors, 1);
+});
+
+test("upsertEvent replaces raw for mutated records", () => {
+  seedSession("s-upsert", { events: [{ id: "m1", type: "model.message", raw: { content: "a" } }] });
+  upsertEvent.run({ id: "m1", session_id: "s-upsert", turn_id: "t1", thread_id: null, type: "model.message",
+    created_at: "2026-09-01T00:00:01Z", raw: JSON.stringify({ content: "b" }) });
+  assert.equal(sessionTrace("s-upsert").events[0].raw.content, "b");
+});
+
+test("sweepStaleTurns closes idle running turns of local sources only", () => {
+  seedSession("s-stale-cc", { source: "claude-code", updated_at: "2026-09-01T00:00:00Z", turns: [{ id: "st1", status: "running" }] });
+  seedSession("s-stale-tf", { source: "trueforge", updated_at: "2026-09-01T00:00:00Z", turns: [{ id: "st2", status: "running" }] });
+  seedSession("s-fresh-cc", { source: "claude-code", updated_at: new Date().toISOString(), turns: [{ id: "st3", status: "running" }] });
+  sweepStaleTurns();
+  const status = (id: string) => (db.prepare(`SELECT status, completed_at FROM turns WHERE id = ?`).get(id) as any);
+  assert.deepEqual(status("st1"), { status: "done", completed_at: "2026-09-01T00:00:00Z" });
+  assert.equal(status("st2").status, "running");
+  assert.equal(status("st3").status, "running");
 });

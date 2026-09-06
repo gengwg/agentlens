@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Report, type SessionSummary, type Trace, type TraceEvent } from "./api";
+import { api, type Report, type SessionSummary, type SourceStatus, type Trace, type TraceEvent } from "./api";
 
 const fmtTokens = (n: number | null | undefined) =>
-  n == null ? "-" : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 const fmtDur = (s: number | null | undefined) =>
   s == null ? "-" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
 const fmtAge = (iso: string | null | undefined) => {
@@ -30,6 +30,7 @@ function StatusDot({ status }: { status: string }) {
 export function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [sources, setSources] = useState<SourceStatus[]>([]);
   const [selected, select] = useState<string | null>(
     () => new URLSearchParams(location.search).get("session"),
   );
@@ -45,10 +46,11 @@ export function App() {
   };
 
   const refresh = () => {
-    Promise.all([api.sessions(), api.reports()])
-      .then(([s, r]) => {
+    Promise.all([api.sessions(), api.reports(), api.sources()])
+      .then(([s, r, src]) => {
         setSessions(s);
         setReports(r);
+        setSources(src);
         setOffline(false);
         setLastSync(new Date());
       })
@@ -72,6 +74,9 @@ export function App() {
       setBusy(false);
     }
   };
+
+  // The investigator is a TrueForge agent; without TrueForge it cannot run.
+  const tfOk = sources.some((s) => s.name === "trueforge" && s.ok);
 
   const totals = useMemo(() => {
     const t = { sessions: sessions.length, errors: 0, tokens: 0, tools: 0, approvals: 0 };
@@ -125,7 +130,12 @@ export function App() {
           </span>
         )}
         {error && <span className="errMsg">{error}</span>}
-        <button className="primary" disabled={busy} onClick={() => investigate()}>
+        <button
+          className="primary"
+          disabled={busy || !tfOk}
+          title={tfOk ? undefined : "TrueForge not connected"}
+          onClick={() => investigate()}
+        >
           {busy ? "starting..." : "Investigate fleet"}
         </button>
       </header>
@@ -134,6 +144,7 @@ export function App() {
           sessionId={selected}
           onBack={() => setSelected(null)}
           onInvestigate={() => investigate(selected)}
+          canInvestigate={tfOk}
         />
       ) : (
         <main>
@@ -196,6 +207,7 @@ function SessionTable({
           ? s.error_turns > 0 || s.tool_errors > 0
           : s.pending_approvals > 0)) &&
       (!q ||
+        s.source.includes(q.toLowerCase()) ||
         s.agent_name?.toLowerCase().includes(q.toLowerCase()) ||
         s.title?.toLowerCase().includes(q.toLowerCase()) ||
         s.id.includes(q)),
@@ -204,12 +216,13 @@ function SessionTable({
     <section className="card grow">
       <div className="cardHead">
         <h2>Sessions</h2>
-        <input placeholder="filter by agent, title, id" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input placeholder="filter by source, agent, title, id" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <table>
         <thead>
           <tr>
             <th />
+            <th>Source</th>
             <th>Agent</th>
             <th>Title</th>
             <th>Turns</th>
@@ -248,8 +261,15 @@ function SessionTable({
                   }
                 />
               </td>
+              <td>
+                <span className="badge source">{s.source}</span>
+              </td>
               <td className="mono">{s.agent_name}</td>
-              <td className="dim">{s.title ?? s.id.slice(0, 18)}</td>
+              <td className="dim">
+                <div className="title" title={s.title ?? undefined}>
+                  {s.title ?? s.id.slice(0, 18)}
+                </div>
+              </td>
               <td>{s.turn_count}</td>
               <td>{s.tool_calls}</td>
               <td>{s.subagents}</td>
@@ -261,8 +281,9 @@ function SessionTable({
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={10} className="empty">
-                No sessions yet. Run `npm run seed -w packages/server` to generate demo traffic.
+              <td colSpan={11} className="empty">
+                No sessions yet. Local Claude Code and OpenCode sessions appear automatically; run
+                `npm run seed -w packages/server` for TrueForge demo traffic.
               </td>
             </tr>
           )}
@@ -296,10 +317,12 @@ function TraceView({
   sessionId,
   onBack,
   onInvestigate,
+  canInvestigate,
 }: {
   sessionId: string;
   onBack: () => void;
   onInvestigate: () => void;
+  canInvestigate: boolean;
 }) {
   const [trace, setTrace] = useState<Trace | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -308,6 +331,9 @@ function TraceView({
 
   const runningTurnId = trace?.turns.find((t) => t.status === "running")?.id;
   const running = Boolean(runningTurnId);
+  // Only TrueForge has a push stream and approval gates; other sources are
+  // covered by the poll above.
+  const isTrueforge = trace?.session?.source === "trueforge";
 
   useEffect(() => {
     let stop = false;
@@ -332,7 +358,7 @@ function TraceView({
   // Live-tail the running turn via the SSE proxy. Keyed on the turn id, not
   // the trace object, so the 2.5s poll doesn't tear down the connection.
   useEffect(() => {
-    if (!runningTurnId) return;
+    if (!runningTurnId || !isTrueforge) return;
     const es = new EventSource(`/api/sessions/${sessionId}/turns/${runningTurnId}/live`);
     let firstErrorAt = 0;
     es.onmessage = (m) => {
@@ -367,7 +393,7 @@ function TraceView({
       es.close();
       setLive([]);
     };
-  }, [sessionId, runningTurnId]);
+  }, [sessionId, runningTurnId, isTrueforge]);
 
   const events = useMemo(() => {
     const stored = trace?.events ?? [];
@@ -396,8 +422,8 @@ function TraceView({
   const approvalTurnId = useMemo(() => {
     const turns = trace?.turns ?? [];
     const newest = turns[turns.length - 1];
-    return newest && newest.pending_actions > 0 ? newest.id : null;
-  }, [trace]);
+    return isTrueforge && newest && newest.pending_actions > 0 ? newest.id : null;
+  }, [trace, isTrueforge]);
 
   if (!trace)
     return (
@@ -411,6 +437,7 @@ function TraceView({
     <main className="traceView">
       <div className="traceHead">
         <button onClick={onBack}>&larr; sessions</button>
+        <span className="badge source">{trace.session?.source}</span>
         <h2 className="mono">
           {trace.session?.agent_name} <span className="dim">/ {sessionId.slice(0, 20)}</span>
         </h2>
@@ -418,7 +445,12 @@ function TraceView({
         {loadError && <span className="errMsg">{loadError} Showing last known data.</span>}
         <span className="grow" />
         <input placeholder="search events" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="primary" onClick={onInvestigate}>
+        <button
+          className="primary"
+          disabled={!canInvestigate}
+          title={canInvestigate ? undefined : "TrueForge not connected"}
+          onClick={onInvestigate}
+        >
           Investigate this session
         </button>
       </div>
@@ -550,7 +582,7 @@ function EventRow({
     }
     case "tool.response":
       return (
-        <Row tag="TOOL" cls="tool" time={ev.created_at} sub={sub}>
+        <Row tag="TOOL" cls={raw.error ? "error" : "tool"} time={ev.created_at} sub={sub}>
           <span className="mono">{String(raw.content).slice(0, 500)}</span>
         </Row>
       );

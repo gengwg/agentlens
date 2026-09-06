@@ -1,5 +1,6 @@
 export type SessionSummary = {
   id: string;
+  source: string;
   agent_name: string;
   title: string | null;
   created_at: string;
@@ -27,7 +28,7 @@ export type TraceEvent = {
 };
 
 export type Trace = {
-  session: { id: string; agent_name: string; title: string | null } | null;
+  session: { id: string; source: string; agent_name: string; title: string | null } | null;
   turns: {
     id: string;
     created_at: string;
@@ -41,6 +42,8 @@ export type Trace = {
 
 export type Report = { id: number; title: string; body: string; created_at: string };
 
+export type SourceStatus = { name: string; ok: boolean; detail: string };
+
 const json = (r: Response) => {
   if (!r.ok) throw new Error(`${r.status}`);
   return r.json();
@@ -51,6 +54,7 @@ export const api = {
   trace: (id: string): Promise<Trace> => fetch(`/api/sessions/${id}`).then(json),
   agents: (): Promise<any[]> => fetch("/api/agents").then(json),
   reports: (): Promise<Report[]> => fetch("/api/reports").then(json),
+  sources: (): Promise<SourceStatus[]> => fetch("/api/sources").then(json),
   investigate: (sessionId?: string): Promise<{ session_id: string; turn_id: string }> =>
     fetch("/api/investigate", {
       method: "POST",

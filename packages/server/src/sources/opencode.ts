@@ -1,0 +1,194 @@
+import type { Database } from "better-sqlite3";
+import { userInfo } from "node:os";
+import { basename } from "node:path";
+import { db, getCursor, insertEvent, setCursor, turnAt, upsertEvent, upsertSession } from "../db.js";
+import type { Source } from "./types.js";
+
+// OpenCode keeps its state in SQLite (session / message / part tables, JSON in
+// `data`). Rows are updated in place while a step runs, so events are upserted
+// and the cursor overlaps by a few seconds. Child sessions (parent_id set) are
+// shown as subagent threads of the parent.
+
+const SOURCE = "opencode";
+const OVERLAP_MS = 5000;
+const iso = (ms: number) => new Date(ms).toISOString();
+
+const insertTurn = db.prepare(
+  `INSERT OR IGNORE INTO turns (id, session_id, created_at, status, ingested) VALUES (?, ?, ?, 'running', 1)`,
+);
+const setTurnState = db.prepare(`UPDATE turns SET status = ?, completed_at = ?, error = ? WHERE id = ?`);
+// A new prompt aborts whatever was still running; OpenCode leaves no marker.
+const closeEarlier = db.prepare(`
+  UPDATE turns SET status = 'done',
+    completed_at = COALESCE((SELECT MAX(created_at) FROM events e WHERE e.turn_id = turns.id), ?)
+  WHERE session_id = ? AND status = 'running' AND created_at < ?
+`);
+const touchSession = db.prepare(`UPDATE sessions SET updated_at = ? WHERE id = ? AND updated_at < ?`);
+
+type Row = { id: string; session_id: string; time_created: number; time_updated: number; data: any };
+
+export function createOpenCode(src: Database): Source {
+  // No index on time_updated in OpenCode's schema; a full scan of a few
+  // thousand rows every tick is fine for a local DB.
+  const changedSessions = src.prepare(
+    `SELECT id, parent_id, directory, title, time_created, time_updated FROM session WHERE time_updated > ?`,
+  );
+  const changedMessages = src.prepare(
+    `SELECT id FROM message WHERE time_updated > ?
+     UNION SELECT message_id FROM part WHERE time_updated > ?`,
+  );
+  const getMessage = src.prepare(`SELECT id, session_id, time_created, time_updated, data FROM message WHERE id = ?`);
+  const getParts = src.prepare(`SELECT id, time_created, time_updated, data FROM part WHERE message_id = ? ORDER BY time_created, id`);
+  const getSession = src.prepare(`SELECT id, parent_id FROM session WHERE id = ?`);
+  const repliesTo = src.prepare(
+    `SELECT data FROM message WHERE session_id = ? AND json_extract(data,'$.parentID') = ? ORDER BY time_created`,
+  );
+  const maxTs = src.prepare(
+    `SELECT MAX(t) AS t FROM (SELECT MAX(time_updated) t FROM session UNION ALL SELECT MAX(time_updated) FROM message UNION ALL SELECT MAX(time_updated) FROM part)`,
+  );
+
+  function ingestMessage(id: string) {
+    const m = getMessage.get(id) as Row | undefined;
+    if (!m) return;
+    const data = JSON.parse(m.data);
+    const s = getSession.get(m.session_id) as { id: string; parent_id: string | null } | undefined;
+    if (!s) return;
+    const sessionId = s.parent_id ?? s.id;
+    const threadId = s.parent_id ? s.id : null;
+    const parts = (getParts.all(m.id) as Row[]).map((p) => ({ ...p, data: JSON.parse(p.data) }));
+    const text = parts.filter((p) => p.data.type === "text").map((p) => p.data.text).join("\n");
+    const at = iso(data.time?.created ?? m.time_created);
+
+    if (data.role === "user") {
+      if (threadId) return; // a child session's prompt is the parent's task call
+      closeEarlier.run(at, sessionId, at);
+      insertTurn.run(`oc:${m.id}`, sessionId, at);
+      upsertEvent.run({
+        id: `oc:${m.id}`,
+        session_id: sessionId,
+        turn_id: `oc:${m.id}`,
+        thread_id: null,
+        type: "turn.created",
+        created_at: at,
+        raw: JSON.stringify({ input: [{ type: "user.message", content: text }] }),
+      });
+      touchSession.run(at, sessionId, at);
+      return;
+    }
+
+    const turnId = threadId ? turnAt(sessionId, at) : `oc:${data.parentID}`;
+    if (!turnId) return; // parent turn not ingested yet, retry next tick
+    const tools = parts.filter((p) => p.data.type === "tool");
+    const tk = data.tokens ?? {};
+    upsertEvent.run({
+      id: `oc:${m.id}`,
+      session_id: sessionId,
+      turn_id: turnId,
+      thread_id: threadId,
+      type: "model.message",
+      created_at: at,
+      raw: JSON.stringify({
+        content: text,
+        toolCalls: tools.map((p) => ({
+          id: p.data.callID,
+          function: { name: p.data.tool, arguments: JSON.stringify(p.data.state?.input ?? {}) },
+        })),
+        usage: {
+          inputTokens: (tk.input ?? 0) + (tk.cache?.read ?? 0) + (tk.cache?.write ?? 0),
+          outputTokens: (tk.output ?? 0) + (tk.reasoning ?? 0),
+        },
+        model: data.modelID,
+        cost: data.cost,
+      }),
+    });
+    for (const p of tools) {
+      const st = p.data.state ?? {};
+      if (st.status !== "completed" && st.status !== "error") continue;
+      upsertEvent.run({
+        id: `oc:${p.id}`,
+        session_id: sessionId,
+        turn_id: turnId,
+        thread_id: threadId,
+        type: "tool.response",
+        created_at: iso(st.time?.end ?? p.time_updated),
+        raw: JSON.stringify({
+          content: String(st.output ?? st.error ?? ""),
+          toolCallId: p.data.callID,
+          error: st.status === "error",
+        }),
+      });
+    }
+    const last = iso(data.time?.completed ?? m.time_updated);
+    touchSession.run(last, sessionId, last);
+    if (!threadId) updateTurn(sessionId, data.parentID);
+  }
+
+  // Turn status derives from every assistant reply to the user message.
+  function updateTurn(sessionId: string, userMsgId: string) {
+    const replies = (repliesTo.all(sessionId, userMsgId) as { data: string }[]).map((r) => JSON.parse(r.data));
+    if (replies.length === 0) return;
+    const latest = replies[replies.length - 1];
+    const failed = replies.find((r) => r.error);
+    let status = "running";
+    let message: string | null = null;
+    if (failed) {
+      status = failed.error.name === "MessageAbortedError" ? "cancelled" : "error";
+      message = status === "error" ? (failed.error.data?.message ?? failed.error.name) : null;
+    } else if (latest.time?.completed && latest.finish !== "tool-calls") {
+      status = "done";
+    }
+    if (status === "running") return;
+    const completed = iso(Math.max(...replies.map((r) => r.time?.completed ?? r.time?.created ?? 0)));
+    setTurnState.run(status, completed, message, `oc:${userMsgId}`);
+    const cost = replies.reduce((n, r) => n + (r.cost ?? 0), 0);
+    insertEvent.run({
+      id: `oc:${userMsgId}:done`,
+      session_id: sessionId,
+      turn_id: `oc:${userMsgId}`,
+      thread_id: null,
+      type: "turn.done",
+      created_at: completed,
+      raw: JSON.stringify({ state: { status, message, metrics: { totalCostInUsd: cost } } }),
+    });
+  }
+
+  async function poll() {
+    const cursor = getCursor<{ ts: number }>(SOURCE, "db") ?? { ts: 0 };
+    const since = cursor.ts - OVERLAP_MS;
+    const sessions = changedSessions.all(since) as any[];
+    const messages = (changedMessages.all(since, since) as { id: string }[]).map((r) => r.id);
+
+    db.transaction(() => {
+      for (const s of sessions.filter((s) => !s.parent_id)) {
+        upsertSession.run({
+          id: s.id,
+          agent_name: s.directory ? basename(s.directory) : SOURCE,
+          title: s.title,
+          created_at: iso(s.time_created),
+          updated_at: iso(s.time_updated),
+          created_by: userInfo().username,
+          source: SOURCE,
+        });
+      }
+      for (const id of messages) ingestMessage(id);
+      for (const s of sessions.filter((s) => s.parent_id)) {
+        const at = iso(s.time_created);
+        const turnId = turnAt(s.parent_id, at);
+        if (!turnId) continue;
+        insertEvent.run({
+          id: `oc:thread:${s.id}`,
+          session_id: s.parent_id,
+          turn_id: turnId,
+          thread_id: s.id,
+          type: "thread.created",
+          created_at: at,
+          raw: JSON.stringify({ title: s.title, threadId: s.id }),
+        });
+      }
+      const t = (maxTs.get() as { t: number | null }).t;
+      if (t != null) setCursor(SOURCE, "db", { ts: t });
+    })();
+  }
+
+  return { name: SOURCE, poll, status: () => ({ ok: true, detail: src.name }) };
+}
