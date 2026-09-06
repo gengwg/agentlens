@@ -1,4 +1,5 @@
-export type SourceName = "trueforge" | "claude-code" | "opencode";
+// Free-form so the ingest API can accept any harness name.
+export type SourceName = string;
 
 export interface Source {
   name: SourceName;

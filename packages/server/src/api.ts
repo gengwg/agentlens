@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { agentSummaries, db, sessionSource, sessionSummaries, sessionTrace } from "./db.js";
+import { closeTurn, ensureSession, openTurn, putEvent, touch } from "./sources/emit.js";
 import { active } from "./sources/index.js";
 import { client, trueforgeOk } from "./sources/trueforge.js";
 
@@ -20,6 +21,49 @@ app.get("/api/reports", (c) =>
 app.get("/api/sessions", (c) => c.json(sessionSummaries()));
 app.get("/api/sessions/:id", (c) => c.json(sessionTrace(c.req.param("id"))));
 app.get("/api/sources", (c) => c.json(active.map((s) => ({ name: s.name, ...s.status() }))));
+
+// Generic ingest for harnesses without a file adapter: any client posts
+// sessions, turns, and events already in the normalized vocabulary. Idempotent
+// by id, so shippers can resend. See README "Bring your own harness".
+app.post("/api/ingest", async (c) => {
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  const source = typeof body?.source === "string" && /^[a-z0-9][a-z0-9_.-]{0,31}$/i.test(body.source) ? body.source : null;
+  if (!source) return c.json({ error: "source is required (letters, digits, - _ .)" }, 400);
+  const sessions: any[] = body.sessions ?? [];
+  const turns: any[] = body.turns ?? [];
+  const events: any[] = body.events ?? [];
+  const bad = [...sessions, ...turns, ...events].find((x) => !x || typeof x.id !== "string" || !x.id);
+  if (bad !== undefined) return c.json({ error: "every session, turn, and event needs a string id" }, 400);
+  try {
+    db.transaction(() => {
+      for (const s of sessions) {
+        ensureSession({ id: s.id, source, agent_name: String(s.agent_name ?? source), title: s.title ?? null,
+          created_at: s.created_at ?? new Date().toISOString(), updated_at: s.updated_at });
+        if (s.updated_at) touch(s.id, s.updated_at);
+      }
+      for (const t of turns) {
+        if (typeof t.session_id !== "string") throw new Error(`turn ${t.id}: session_id is required`);
+        openTurn(t.id, t.session_id, t.created_at ?? new Date().toISOString());
+        if (t.status && t.status !== "running") closeTurn(t.id, String(t.status), t.completed_at ?? null, t.error ?? null);
+      }
+      for (const e of events) {
+        if (typeof e.session_id !== "string" || typeof e.turn_id !== "string" || typeof e.type !== "string")
+          throw new Error(`event ${e.id}: session_id, turn_id and type are required`);
+        putEvent({ id: e.id, session_id: e.session_id, turn_id: e.turn_id, thread_id: e.thread_id ?? null, type: e.type,
+          created_at: e.created_at ?? null, raw: e.raw ?? {} });
+        if (e.created_at) touch(e.session_id, e.created_at);
+      }
+    })();
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+  return c.json({ sessions: sessions.length, turns: turns.length, events: events.length });
+});
 
 const isTrueforge = (id: string) =>
   (sessionSource.get(id) as { source: string } | undefined)?.source === "trueforge";
