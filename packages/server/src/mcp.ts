@@ -87,6 +87,9 @@ function buildMcp() {
     },
   );
 
+  // The human approval gate for this tool is enforced by TrueForge via
+  // require_approval_for_tools in the investigator manifest (seed.ts); the
+  // annotation below only describes the tool.
   mcp.registerTool(
     "publish_incident_report",
     {

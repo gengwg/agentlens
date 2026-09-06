@@ -2,6 +2,7 @@ import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, rea
 import { userInfo } from "node:os";
 import { basename, join } from "node:path";
 import { db, getCursor, insertEvent, setCursor, turnAt, upsertSession, upsertTurn } from "../db.js";
+import { textOf } from "./emit.js";
 import type { Source } from "./types.js";
 
 // Claude Code writes ~/.claude/projects/<encoded-cwd>/<session>.jsonl, one JSON
@@ -71,15 +72,6 @@ const reopenTurn = db.prepare(`UPDATE turns SET status = 'running', completed_at
 const hasToolResult = (r: any) =>
   Array.isArray(r.message?.content) && r.message.content.some((b: any) => b.type === "tool_result");
 const turnStatus = db.prepare(`SELECT status FROM turns WHERE id = ?`);
-
-const textOf = (content: any): string => {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((b: any) => (b.type === "text" ? b.text : b.type === "image" ? "[image]" : ""))
-    .filter(Boolean)
-    .join("\n");
-};
 
 // Slash commands arrive as XML-ish blocks; show "/name args" instead.
 const titleOf = (text: string): string => {
