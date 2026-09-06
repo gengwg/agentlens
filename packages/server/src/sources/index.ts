@@ -2,8 +2,10 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import { createAntigravity } from "./antigravity.js";
 import { createClaudeCode } from "./claude-code.js";
 import { createCodex } from "./codex.js";
+import { createCursor } from "./cursor.js";
 import { createDsh } from "./dsh.js";
 import { createGemini } from "./gemini.js";
 import { createOpenCode } from "./opencode.js";
@@ -25,6 +27,8 @@ export function detectSources(env = process.env): Source[] {
     dsh: env.DSH_HOME ?? join(home, ".dsh"),
     codex: env.CODEX_HOME ?? join(home, ".codex"),
     gemini: env.GEMINI_HOME ?? join(home, ".gemini"),
+    antigravity: env.ANTIGRAVITY_HOME ?? join(home, ".gemini", "antigravity-cli"),
+    cursor: env.CURSOR_HOME ?? join(home, ".cursor"),
   };
   // Roo Code / Cline task stores across VS Code flavors, plus an explicit override.
   const rooDirs: [string, string][] = env.ROO_TASKS_DIR
@@ -39,6 +43,8 @@ export function detectSources(env = process.env): Source[] {
     dsh: () => [createDsh(paths.dsh)],
     codex: () => [createCodex(paths.codex)],
     gemini: () => [createGemini(paths.gemini)],
+    antigravity: () => [createAntigravity(paths.antigravity)],
+    cursor: () => [createCursor(paths.cursor)],
     "roo-code": () => rooDirs.filter(([n, d]) => n === "roo-code" && isDir(d)).map(([n, d]) => createRoo(n, d)),
     cline: () => rooDirs.filter(([n, d]) => n === "cline" && isDir(d)).map(([n, d]) => createRoo(n, d)),
     trueforge: () => [trueforgeSource],
@@ -49,6 +55,8 @@ export function detectSources(env = process.env): Source[] {
     dsh: isDir(join(paths.dsh, "sessions")),
     codex: isDir(join(paths.codex, "sessions")),
     gemini: isDir(join(paths.gemini, "tmp")),
+    antigravity: isDir(join(paths.antigravity, "brain")),
+    cursor: isDir(join(paths.cursor, "projects")),
     "roo-code": rooDirs.some(([n, d]) => n === "roo-code" && isDir(d)),
     cline: rooDirs.some(([n, d]) => n === "cline" && isDir(d)),
     trueforge: true,
