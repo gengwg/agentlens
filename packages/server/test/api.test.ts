@@ -70,3 +70,28 @@ test("TrueForge-only routes refuse when TrueForge is not connected", async () =>
   });
   assert.equal(approve.status, 503);
 });
+
+test("POST /api/ingest accepts normalized sessions, turns and events", async () => {
+  const body = {
+    source: "grok",
+    sessions: [{ id: "gk1", agent_name: "proj", title: "hi", created_at: "2026-09-01T00:00:00Z" }],
+    turns: [{ id: "gk1:t1", session_id: "gk1", created_at: "2026-09-01T00:00:00Z", status: "done", completed_at: "2026-09-01T00:00:09Z" }],
+    events: [
+      { id: "gk1:e1", session_id: "gk1", turn_id: "gk1:t1", type: "turn.created", created_at: "2026-09-01T00:00:00Z", raw: { input: [{ type: "user.message", content: "hi" }] } },
+      { id: "gk1:e2", session_id: "gk1", turn_id: "gk1:t1", type: "model.message", created_at: "2026-09-01T00:00:05Z", raw: { content: "hello", usage: { inputTokens: 10, outputTokens: 2 } } },
+      { id: "gk1:e3", session_id: "gk1", turn_id: "gk1:t1", type: "tool.response", created_at: "2026-09-01T00:00:06Z", raw: { content: "nope", error: true } },
+    ],
+  };
+  const post = (b: unknown) => app.request("/api/ingest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+  assert.equal((await post(body)).status, 200);
+  assert.equal((await post(body)).status, 200); // idempotent
+  const s = (await (await app.request("/api/sessions")).json()).find((x: any) => x.id === "gk1");
+  assert.equal(s.source, "grok");
+  assert.equal(s.turn_count, 1);
+  assert.equal(s.total_seconds, 9);
+  assert.equal(s.tool_errors, 1);
+  assert.equal(s.input_tokens, 10);
+  assert.equal((await post({ sessions: [{ id: "x" }] })).status, 400);
+  assert.equal((await post({ source: "bad source!", sessions: [] })).status, 400);
+  assert.equal((await post({ source: "ok", events: [{ id: "e", type: "x" }] })).status, 400);
+});
