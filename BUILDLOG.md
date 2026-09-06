@@ -149,3 +149,17 @@ Surprises:
   PLANNER_RESPONSE with tool_calls, GENERIC tool output). No usage either.
 - Both CLIs refuse tools in headless mode without an explicit trust flag.
 
+## 2026-09-06 - Splitting the error signal
+
+What: the fleet header now shows "failed turns" and "tool errors" as separate
+pills, each filtering the table; the red status dot means a failed turn only,
+and a row shows its failed-tool count next to the tool total. Declined tools no
+longer count as errors anywhere, and the investigator's list_problem_sessions
+wants three or more tool errors before flagging a session on that alone.
+
+Why: with any failed tool call counting, 98 of 187 local sessions were red, so
+the number carried no information. Measuring the corpus showed 96 of those had
+no failed turn at all, and the two most common "errors" were permission denials
+and user rejections. Splitting the two signals leaves 4 sessions with failed
+turns and 84 with real tool errors.
+
