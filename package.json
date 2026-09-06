@@ -9,6 +9,7 @@
     "esbuild@0.28.2": true
   },
   "scripts": {
+    "start": "npm run build -w packages/web && npm start -w packages/server",
     "test": "npm test -w packages/server"
   }
 }
