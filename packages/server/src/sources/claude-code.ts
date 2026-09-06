@@ -27,7 +27,7 @@ export type Ctx = {
   sessionId: string;
   // null for the main transcript, agent id for a subagent file
   threadId: string | null;
-  threadTitle?: string;
+  metaPath?: string;
 };
 
 // Forked/resumed sessions copy the parent's records verbatim (same uuids), so
@@ -58,7 +58,18 @@ const setTitle = db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`);
 const closeTurn = db.prepare(
   `UPDATE turns SET status = CASE WHEN status = 'error' THEN 'error' ELSE ? END, completed_at = ? WHERE id = ?`,
 );
+// A turn ended by the next prompt (no turn_duration record) ends at its last
+// event, not at the prompt, so idle time is not counted as duration.
+const closeAtLastEvent = db.prepare(`
+  UPDATE turns SET status = CASE WHEN status = 'error' THEN 'error' ELSE 'done' END,
+    completed_at = COALESCE((SELECT MAX(created_at) FROM events e WHERE e.turn_id = turns.id), ?)
+  WHERE id = ?
+`);
 const failTurn = db.prepare(`UPDATE turns SET status = 'error', error = ? WHERE id = ?`);
+// Undo a stale-sweep close when the turn turns out to still be producing records.
+const reopenTurn = db.prepare(`UPDATE turns SET status = 'running', completed_at = NULL WHERE id = ? AND status = 'done'`);
+const hasToolResult = (r: any) =>
+  Array.isArray(r.message?.content) && r.message.content.some((b: any) => b.type === "tool_result");
 const turnStatus = db.prepare(`SELECT status FROM turns WHERE id = ?`);
 
 const textOf = (content: any): string => {
@@ -70,11 +81,15 @@ const textOf = (content: any): string => {
     .join("\n");
 };
 
-const isPrompt = (r: any) =>
-  r.type === "user" &&
-  !r.isCompactSummary &&
-  !r.isSidechain &&
-  !(Array.isArray(r.message?.content) && r.message.content.some((b: any) => b.type === "tool_result"));
+// Slash commands arrive as XML-ish blocks; show "/name args" instead.
+const titleOf = (text: string): string => {
+  const m = text.match(/^<command-name>([^<]*)<\/command-name>/);
+  if (!m) return text.slice(0, 80);
+  const args = text.match(/<command-args>([^<]*)<\/command-args>/)?.[1].trim();
+  return `${m[1].trim()}${args ? ` ${args}` : ""}`.slice(0, 80);
+};
+
+const isPrompt = (r: any) => r.type === "user" && !r.isCompactSummary && !r.isSidechain && !hasToolResult(r);
 
 function event(ctx: Ctx, turnId: string, id: string, type: string, at: string | null, raw: unknown) {
   insertEvent.run({
@@ -118,7 +133,12 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
     }
 
     if (isPrompt(r)) {
-      if (ctx.threadId) continue; // the subagent's own prompt is the parent's tool call
+      if (ctx.threadId) {
+        // The subagent's own prompt is the parent's tool call; a later prompt
+        // means the agent was resumed from a later parent turn.
+        if (at) state.turn_id = turnAt(ctx.sessionId, at) ?? state.turn_id;
+        continue;
+      }
       // isMeta marks injected content (skills, caveats) inside a turn, but
       // remote-control sessions flag real prompts the same way, so it only
       // matters while a turn is open.
@@ -130,8 +150,8 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
         state.turn_id = undefined;
         continue;
       }
-      if (state.turn_id) closeTurn.run("done", at, state.turn_id);
-      state.first_prompt ??= text.slice(0, 80);
+      if (state.turn_id) closeAtLastEvent.run(at, state.turn_id);
+      state.first_prompt ??= titleOf(text);
       openTurn(ctx, state, r.uuid, at);
       event(ctx, state.turn_id!, eid(ctx, r.uuid), "turn.created", at, {
         input: [{ type: "user.message", content: text }],
@@ -139,14 +159,16 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
       continue;
     }
 
-    if (r.type !== "assistant" && r.type !== "user" && !(r.type === "system" && r.subtype === "turn_duration")) continue;
+    const output = r.type === "assistant" || (r.type === "user" && hasToolResult(r));
+    if (!output && !(r.type === "system" && r.subtype === "turn_duration")) continue;
     // Model output with no open turn (continuation after compaction, records
     // the harness did not mark as a prompt): open a turn so nothing is lost.
     if (!state.turn_id) {
-      if (r.type === "system") continue;
+      if (!output) continue;
       openTurn(ctx, state, r.uuid, at);
     }
     const turnId = state.turn_id!;
+    if (output && !ctx.threadId) reopenTurn.run(turnId);
 
     if (r.type === "assistant") {
       const m = r.message ?? {};
@@ -247,7 +269,7 @@ function ingestFile(path: string, ctx: Ctx) {
     if (ctx.threadId && !state.started) {
       const at = records.find((r) => r.timestamp)?.timestamp ?? null;
       event(ctx, state.turn_id!, eid(ctx, `thread:${ctx.threadId}`), "thread.created", at, {
-        title: ctx.threadTitle ?? ctx.threadId,
+        title: ctx.metaPath ? subagentTitle(ctx.metaPath, ctx.threadId) : ctx.threadId,
         threadId: ctx.threadId,
       });
       state.started = true;
@@ -274,22 +296,27 @@ export function createClaudeCode(projectsDir: string): Source {
     for (const proj of readdirSync(projectsDir, { withFileTypes: true })) {
       if (!proj.isDirectory()) continue;
       const dir = join(projectsDir, proj.name);
-      for (const f of readdirSync(dir)) {
-        if (!f.endsWith(".jsonl")) continue;
+      for (const f of readdirSync(dir, { withFileTypes: true })) {
+        if (!f.isFile() || !f.name.endsWith(".jsonl")) continue;
         files++;
-        const sessionId = f.slice(0, -".jsonl".length);
-        ingestFile(join(dir, f), { sessionId, threadId: null });
-        const subDir = join(dir, sessionId, "subagents");
-        if (existsSync(subDir)) {
-          for (const sf of readdirSync(subDir)) {
-            if (!sf.startsWith("agent-") || !sf.endsWith(".jsonl")) continue;
-            const agentId = sf.slice("agent-".length, -".jsonl".length);
-            ingestFile(join(subDir, sf), {
-              sessionId,
-              threadId: agentId,
-              threadTitle: subagentTitle(join(subDir, `agent-${agentId}.meta.json`), agentId),
-            });
+        const sessionId = f.name.slice(0, -".jsonl".length);
+        // One unreadable or vanished file must not stop the rest of the scan.
+        try {
+          ingestFile(join(dir, f.name), { sessionId, threadId: null });
+          const subDir = join(dir, sessionId, "subagents");
+          if (existsSync(subDir)) {
+            for (const sf of readdirSync(subDir)) {
+              if (!sf.startsWith("agent-") || !sf.endsWith(".jsonl")) continue;
+              const agentId = sf.slice("agent-".length, -".jsonl".length);
+              ingestFile(join(subDir, sf), {
+                sessionId,
+                threadId: agentId,
+                metaPath: join(subDir, `agent-${agentId}.meta.json`),
+              });
+            }
           }
+        } catch (err) {
+          console.error(`claude-code: ${sessionId}: ${(err as Error).message}`);
         }
         // Yield so the first full-history ingest does not stall the API.
         await new Promise((r) => setImmediate(r));

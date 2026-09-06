@@ -11,6 +11,7 @@ import type { Source } from "./types.js";
 
 const SOURCE = "opencode";
 const OVERLAP_MS = 5000;
+const MAX_TOOL_OUTPUT = 64 * 1024;
 const iso = (ms: number) => new Date(ms).toISOString();
 
 const insertTurn = db.prepare(
@@ -33,9 +34,13 @@ export function createOpenCode(src: Database): Source {
   const changedSessions = src.prepare(
     `SELECT id, parent_id, directory, title, time_created, time_updated FROM session WHERE time_updated > ?`,
   );
+  // Time order matters: a parent's user message must create its turn before
+  // replies (and child-session messages) attach to it.
   const changedMessages = src.prepare(
-    `SELECT id FROM message WHERE time_updated > ?
-     UNION SELECT message_id FROM part WHERE time_updated > ?`,
+    `SELECT id, time_updated FROM message WHERE id IN (
+       SELECT id FROM message WHERE time_updated > ?
+       UNION SELECT message_id FROM part WHERE time_updated > ?)
+     ORDER BY time_created, id`,
   );
   const getMessage = src.prepare(`SELECT id, session_id, time_created, time_updated, data FROM message WHERE id = ?`);
   const getParts = src.prepare(`SELECT id, time_created, time_updated, data FROM part WHERE message_id = ? ORDER BY time_created, id`);
@@ -47,20 +52,31 @@ export function createOpenCode(src: Database): Source {
     `SELECT MAX(t) AS t FROM (SELECT MAX(time_updated) t FROM session UNION ALL SELECT MAX(time_updated) FROM message UNION ALL SELECT MAX(time_updated) FROM part)`,
   );
 
-  function ingestMessage(id: string) {
+  // Child sessions can nest; events always land on the root session.
+  function rootOf(id: string): string | undefined {
+    for (let i = 0; i < 10; i++) {
+      const s = getSession.get(id) as { id: string; parent_id: string | null } | undefined;
+      if (!s) return undefined;
+      if (!s.parent_id) return s.id;
+      id = s.parent_id;
+    }
+    return undefined;
+  }
+
+  // Returns false when the row must be retried next tick.
+  function ingestMessage(id: string): boolean {
     const m = getMessage.get(id) as Row | undefined;
-    if (!m) return;
+    if (!m) return true;
     const data = JSON.parse(m.data);
-    const s = getSession.get(m.session_id) as { id: string; parent_id: string | null } | undefined;
-    if (!s) return;
-    const sessionId = s.parent_id ?? s.id;
-    const threadId = s.parent_id ? s.id : null;
+    const sessionId = rootOf(m.session_id);
+    if (!sessionId) return true;
+    const threadId = sessionId === m.session_id ? null : m.session_id;
     const parts = (getParts.all(m.id) as Row[]).map((p) => ({ ...p, data: JSON.parse(p.data) }));
     const text = parts.filter((p) => p.data.type === "text").map((p) => p.data.text).join("\n");
     const at = iso(data.time?.created ?? m.time_created);
 
     if (data.role === "user") {
-      if (threadId) return; // a child session's prompt is the parent's task call
+      if (threadId) return true; // a child session's prompt is the parent's task call
       closeEarlier.run(at, sessionId, at);
       insertTurn.run(`oc:${m.id}`, sessionId, at);
       upsertEvent.run({
@@ -73,11 +89,11 @@ export function createOpenCode(src: Database): Source {
         raw: JSON.stringify({ input: [{ type: "user.message", content: text }] }),
       });
       touchSession.run(at, sessionId, at);
-      return;
+      return true;
     }
 
     const turnId = threadId ? turnAt(sessionId, at) : `oc:${data.parentID}`;
-    if (!turnId) return; // parent turn not ingested yet, retry next tick
+    if (!turnId) return false; // parent turn not ingested yet, retry next tick
     const tools = parts.filter((p) => p.data.type === "tool");
     const tk = data.tokens ?? {};
     upsertEvent.run({
@@ -112,7 +128,7 @@ export function createOpenCode(src: Database): Source {
         type: "tool.response",
         created_at: iso(st.time?.end ?? p.time_updated),
         raw: JSON.stringify({
-          content: String(st.output ?? st.error ?? ""),
+          content: String(st.output ?? st.error ?? "").slice(0, MAX_TOOL_OUTPUT),
           toolCallId: p.data.callID,
           error: st.status === "error",
         }),
@@ -121,6 +137,7 @@ export function createOpenCode(src: Database): Source {
     const last = iso(data.time?.completed ?? m.time_updated);
     touchSession.run(last, sessionId, last);
     if (!threadId) updateTurn(sessionId, data.parentID);
+    return true;
   }
 
   // Turn status derives from every assistant reply to the user message.
@@ -156,7 +173,9 @@ export function createOpenCode(src: Database): Source {
     const cursor = getCursor<{ ts: number }>(SOURCE, "db") ?? { ts: 0 };
     const since = cursor.ts - OVERLAP_MS;
     const sessions = changedSessions.all(since) as any[];
-    const messages = (changedMessages.all(since, since) as { id: string }[]).map((r) => r.id);
+    const messages = changedMessages.all(since, since) as { id: string; time_updated: number }[];
+    // Rows deferred this tick hold the cursor back so they are seen again.
+    let holdBack = Infinity;
 
     db.transaction(() => {
       for (const s of sessions.filter((s) => !s.parent_id)) {
@@ -170,14 +189,20 @@ export function createOpenCode(src: Database): Source {
           source: SOURCE,
         });
       }
-      for (const id of messages) ingestMessage(id);
+      for (const m of messages) {
+        if (!ingestMessage(m.id)) holdBack = Math.min(holdBack, m.time_updated);
+      }
       for (const s of sessions.filter((s) => s.parent_id)) {
+        const root = rootOf(s.id);
         const at = iso(s.time_created);
-        const turnId = turnAt(s.parent_id, at);
-        if (!turnId) continue;
+        const turnId = root && turnAt(root, at);
+        if (!turnId) {
+          holdBack = Math.min(holdBack, s.time_updated);
+          continue;
+        }
         insertEvent.run({
           id: `oc:thread:${s.id}`,
-          session_id: s.parent_id,
+          session_id: root,
           turn_id: turnId,
           thread_id: s.id,
           type: "thread.created",
@@ -186,7 +211,7 @@ export function createOpenCode(src: Database): Source {
         });
       }
       const t = (maxTs.get() as { t: number | null }).t;
-      if (t != null) setCursor(SOURCE, "db", { ts: t });
+      if (t != null) setCursor(SOURCE, "db", { ts: Math.min(t, holdBack - 1) });
     })();
   }
 

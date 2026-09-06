@@ -20,8 +20,13 @@ export function startCollector(sources: Source[], intervalMs = 3000) {
         failing.set(src.name, msg);
       }
     }
-    sweepStaleTurns();
-    running = false;
+    try {
+      sweepStaleTurns();
+    } catch (err) {
+      console.error("collector: sweep:", (err as Error).message);
+    } finally {
+      running = false;
+    }
   };
   tick();
   return setInterval(tick, intervalMs);
