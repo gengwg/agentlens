@@ -18,6 +18,9 @@ Started at the Agent Harness Hackathon (WeMakeDevs + TrueFoundry, Aug 2026).
   other harness can post the same JSON to the ingest API.
 - Dashboard with a fleet overview and a per-session trace view: timeline of
   input/model/tool activity plus a turn-by-turn transcript with durations.
+  "Failed turns" counts sessions whose turn ended in an error; "tool errors"
+  counts sessions where a tool call failed. A tool the user declined is a
+  choice, not a failure, and counts as neither.
 - Investigator agent (a TrueForge agent) that triages failed or slow sessions
   using AgentLens MCP tools, parallel subagents, sandboxed analysis, and an
   approval gate before publishing its incident report.
