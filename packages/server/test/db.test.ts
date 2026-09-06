@@ -140,6 +140,17 @@ test("source defaults to trueforge and is returned in summaries", () => {
   assert.equal(summary("s-src-cc").source, "claude-code");
 });
 
+test("the {\"error\" prefix heuristic applies to TrueForge sessions only", () => {
+  seedSession("s-prefix-cc", { source: "claude-code", events: [{ id: "pc1", type: "tool.response", raw: { content: '{"error":"quoted"}' } }] });
+  assert.equal(summary("s-prefix-cc").tool_errors, 0);
+});
+
+test("upsertSession never rewinds updated_at", () => {
+  seedSession("s-rewind", { updated_at: "2026-09-01T00:05:00Z" });
+  seedSession("s-rewind", { updated_at: "2026-09-01T00:01:00Z" });
+  assert.equal(summary("s-rewind").updated_at, "2026-09-01T00:05:00Z");
+});
+
 test("tool_errors honors the normalized error flag", () => {
   seedSession("s-flag", {
     events: [
