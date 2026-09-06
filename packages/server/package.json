@@ -1,12 +1,13 @@
 {
-  "name": "@agentlens/server",
-  "private": true,
+  "name": "@gengwg/agentlens",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/bundle-web.mjs",
+    "prepublishOnly": "npm run build -w packages/web --prefix ../.. && npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
@@ -21,5 +22,32 @@
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
+  },
+  "version": "0.5.0",
+  "description": "Local observability for coding-agent harnesses: fleet view and trace viewer for Claude Code, OpenCode, dsh, Cursor Agent, Antigravity, TrueForge and more.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gengwg/agentlens.git"
+  },
+  "homepage": "https://github.com/gengwg/agentlens#readme",
+  "keywords": [
+    "observability",
+    "agent",
+    "claude-code",
+    "opencode",
+    "cursor",
+    "tracing",
+    "llm"
+  ],
+  "bin": {
+    "agentlens": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
