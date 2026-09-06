@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_turn ON events(turn_id);
 CREATE TABLE IF NOT EXISTS reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
@@ -63,7 +64,7 @@ for (const sql of [
 export const upsertSession = db.prepare(`
   INSERT INTO sessions (id, agent_name, title, created_at, updated_at, created_by, source)
   VALUES (@id, @agent_name, @title, @created_at, @updated_at, @created_by, @source)
-  ON CONFLICT(id) DO UPDATE SET title=@title, updated_at=@updated_at
+  ON CONFLICT(id) DO UPDATE SET title=@title, updated_at=MAX(COALESCE(updated_at,''), @updated_at)
 `);
 
 export const sessionSource = db.prepare(`SELECT source FROM sessions WHERE id = ?`);
@@ -91,14 +92,15 @@ export function turnAt(sessionId: string, iso: string): string | undefined {
 }
 
 // Local harnesses never write a terminal marker when their process is killed
-// mid-turn, so a turn idle for 10 minutes is closed as done.
+// mid-turn, so a turn idle for 30 minutes is closed as done. Adapters reopen
+// it if records arrive later (a long tool run writes nothing meanwhile).
 const sweepStmt = db.prepare(`
   UPDATE turns SET status = 'done',
     completed_at = (SELECT updated_at FROM sessions s WHERE s.id = turns.session_id)
   WHERE status = 'running'
     AND session_id IN (
       SELECT id FROM sessions
-      WHERE source != 'trueforge' AND strftime('%s','now') - strftime('%s', updated_at) > 600
+      WHERE source != 'trueforge' AND strftime('%s','now') - strftime('%s', updated_at) > 1800
     )
 `);
 export function sweepStaleTurns() {
@@ -126,7 +128,8 @@ export const upsertEvent = db.prepare(`
 // TrueForge wraps MCP tool failures as a content string starting with {"error"
 // (prefix match, not %error%, so tool output that merely quotes an error is
 // not flagged). Other adapters set a normalized raw.error flag instead.
-const TOOL_ERROR = `e.type = 'tool.response' AND (json_extract(e.raw,'$.error') = 1 OR json_extract(e.raw,'$.content') LIKE '{"error"%')`;
+// `s` is the sessions row of the enclosing query.
+const TOOL_ERROR = `e.type = 'tool.response' AND (json_extract(e.raw,'$.error') = 1 OR (s.source = 'trueforge' AND json_extract(e.raw,'$.content') LIKE '{"error"%'))`;
 
 // Per-session rollup: turn counts/status, duration, tokens, tool calls.
 export function sessionSummaries() {

@@ -25,10 +25,10 @@ const isTrueforge = (id: string) =>
   (sessionSource.get(id) as { source: string } | undefined)?.source === "trueforge";
 
 // Live tail: proxy TrueForge's per-turn SSE stream to the browser. Other
-// sources have no push API; the dashboard's poll covers them.
+// sources have no push API; the dashboard's poll covers them. Not gated on
+// trueforgeOk(): a 404 is fatal for EventSource, a failed subscribe is not.
 app.get("/api/sessions/:id/turns/:turnId/live", (c) => {
-  if (!isTrueforge(c.req.param("id")) || !trueforgeOk())
-    return c.json({ error: "live tail is TrueForge-only" }, 404);
+  if (!isTrueforge(c.req.param("id"))) return c.json({ error: "live tail is TrueForge-only" }, 404);
   return streamSSE(c, async (stream) => {
     const events = await client.sessions.subscribeToTurn(
       c.req.param("id"),

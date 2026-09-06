@@ -47,8 +47,16 @@ test("opencode: root session with tools, error, child thread and completed turn"
   ins("part", { id: "prt_c", message_id: "msg_ca", session_id: "ses_child", time_created: t0 + 4, time_updated: t0 + 4,
     data: { type: "text", text: "found it" } });
 
+  // grandchild session (child of the child) must still land on the root
+  ins("session", { id: "ses_grand", parent_id: "ses_child", directory: "/work/app", title: "deeper", time_created: t0 + 5, time_updated: t0 + 7 });
+  ins("message", { id: "msg_gu", session_id: "ses_grand", time_created: t0 + 5, time_updated: t0 + 5, data: { role: "user", time: { created: t0 + 5 } } });
+  ins("message", { id: "msg_ga", session_id: "ses_grand", time_created: t0 + 6, time_updated: t0 + 7,
+    data: { role: "assistant", parentID: "msg_gu", tokens: { input: 1, output: 1 }, time: { created: t0 + 6, completed: t0 + 7 }, finish: "stop" } });
+
   const source = createOpenCode(src);
   await source.poll();
+  const afterOne = sessionSummaries().find((s) => s.id === "ses_1")!;
+  assert.equal(afterOne.input_tokens, 152, "one poll ingests everything in time order");
   await source.poll(); // idempotent
 
   const all = sessionSummaries().filter((s) => s.source === "opencode");
@@ -59,9 +67,9 @@ test("opencode: root session with tools, error, child thread and completed turn"
   assert.equal(s.turn_count, 1);
   assert.equal(s.tool_calls, 2);
   assert.equal(s.tool_errors, 1);
-  assert.equal(s.subagents, 1);
-  assert.equal(s.input_tokens, 151);
-  assert.equal(s.output_tokens, 26);
+  assert.equal(s.subagents, 2);
+  assert.equal(s.input_tokens, 152);
+  assert.equal(s.output_tokens, 27);
   assert.equal(s.running, 0);
   assert.equal(s.total_seconds, 0);
 
@@ -70,6 +78,7 @@ test("opencode: root session with tools, error, child thread and completed turn"
   const child = t.events.find((e) => e.id === "oc:msg_ca")!;
   assert.equal(child.thread_id, "ses_child");
   assert.equal(child.turn_id, "oc:msg_u");
+  assert.equal(t.events.find((e) => e.id === "oc:msg_ga")!.thread_id, "ses_grand");
   assert.equal(t.events.find((e) => e.type === "turn.done")!.raw.state.metrics.totalCostInUsd, 0.02);
   assert.equal(t.events.find((e) => e.type === "thread.created")!.raw.title, "explore");
   assert.equal(t.events.find((e) => e.id === "oc:msg_a")!.raw.toolCalls.length, 2);
