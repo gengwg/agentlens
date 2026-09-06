@@ -17,7 +17,9 @@ Deadline is imminent: bias to shipping, smallest thing that works, no gold-plati
 
 - TypeScript everywhere, Node 22+ (local: v24).
 - `packages/server`: collector + REST/SSE API + MCP server. Hono, better-sqlite3,
-  `@truefoundry/trueforge-sdk`.
+  `@truefoundry/trueforge-sdk`. One ingest adapter per harness in
+  `src/sources/` (trueforge, claude-code, opencode); adapters emit the TrueForge
+  event vocabulary so db/mcp/web stay shared.
 - `packages/web`: Vite + React dashboard.
 - Agent specs (investigator + demo agents) are defined in
   `packages/server/src/seed.ts` and registered via the TrueForge API.
