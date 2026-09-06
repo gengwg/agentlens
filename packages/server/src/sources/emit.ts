@@ -72,12 +72,19 @@ export function putEvent(e: {
 }
 
 export const iso = (ms: number | string | Date) => new Date(ms).toISOString();
+// Flatten message content (string, or an array of blocks) to display text.
+// Images become a placeholder; thinking/reasoning blocks are dropped.
 export const textOf = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content == null ? "" : JSON.stringify(content);
   return content
-    .map((b: any) => (typeof b === "string" ? b : (b.text ?? b.content ?? "")))
-    .map((t) => (typeof t === "string" ? t : JSON.stringify(t)))
+    .map((b: any) => {
+      if (typeof b === "string") return b;
+      if (b?.type === "image") return "[image]";
+      if (b?.type === "thinking" || b?.type === "reasoning") return "";
+      const t = b?.text ?? b?.content ?? "";
+      return typeof t === "string" ? t : JSON.stringify(t);
+    })
     .filter(Boolean)
     .join("\n");
 };
