@@ -286,10 +286,14 @@ function SessionTable({
               <td>
                 <span className="badge source">{s.source}</span>
               </td>
-              <td className="mono">{s.agent_name}</td>
+              <td className="mono">
+                <div className="agent" title={s.agent_name}>
+                  {s.agent_name}
+                </div>
+              </td>
               <td className="dim">
                 <div className="title" title={s.title ?? undefined}>
-                  {s.title ?? s.id.slice(0, 18)}
+                  {s.title ?? s.id.split(":").pop()!.slice(0, 18)}
                 </div>
               </td>
               <td>{s.turn_count}</td>
