@@ -56,7 +56,8 @@ app.post("/api/ingest", async (c) => {
     db.transaction(() => {
       for (const s of sessions) {
         ensureSession({ id: s.id, source, agent_name: String(s.agent_name ?? source), title: s.title ?? null,
-          created_at: s.created_at ?? new Date().toISOString(), updated_at: s.updated_at });
+          created_at: s.created_at ?? new Date().toISOString(), updated_at: s.updated_at,
+          branch: typeof s.branch === "string" ? s.branch.slice(0, 200) : null });
         if (s.updated_at) touch(s.id, s.updated_at);
       }
       for (const t of turns) {
