@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Report, type SessionSummary, type SourceStatus, type Trace, type TraceEvent } from "./api";
+import { api, type FleetTotals, type Report, type SessionSummary, type SourceStatus, type Trace, type TraceEvent } from "./api";
+
+const PAGE = 200;
 
 const fmtTokens = (n: number | null | undefined) =>
   n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -41,6 +43,12 @@ export function App() {
   const [offline, setOffline] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [filter, setFilter] = useState<Filter>(null);
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  const [matched, setMatched] = useState(0);
+  const [totals, setTotals] = useState<FleetTotals>({
+    sessions: 0, errors: 0, toolErrors: 0, approvals: 0, tools: 0, tokens: 0,
+  });
 
   // Push so the browser's Back returns to the fleet view; popstate syncs state.
   const setSelected = (id: string | null) => {
@@ -58,10 +66,14 @@ export function App() {
     return () => removeEventListener("popstate", onPop);
   }, []);
 
+  // The server does the matching: a fleet of several thousand sessions is too
+  // much to send every few seconds, let alone render.
   const refresh = () => {
-    Promise.all([api.sessions(), api.reports(), api.sources()])
-      .then(([s, r, src]) => {
-        setSessions(s);
+    Promise.all([api.sessions({ q, filter, limit }), api.stats(), api.reports(), api.sources()])
+      .then(([page, t, r, src]) => {
+        setSessions(page.sessions);
+        setMatched(page.total);
+        setTotals(t);
         setReports(r);
         setSources(src);
         setOffline(false);
@@ -70,10 +82,16 @@ export function App() {
       .catch(() => setOffline(true));
   };
   useEffect(() => {
-    refresh();
+    // Typing should not fire a query per keystroke.
+    const debounce = setTimeout(refresh, q ? 250 : 0);
     const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
-  }, []);
+    return () => {
+      clearTimeout(debounce);
+      clearInterval(t);
+    };
+  }, [q, filter, limit]);
+  // A new search starts at the first page again.
+  useEffect(() => setLimit(PAGE), [q, filter]);
 
   const investigate = async (sessionId?: string) => {
     setBusy(true);
@@ -90,18 +108,6 @@ export function App() {
 
   // The investigator is a TrueForge agent; without TrueForge it cannot run.
   const tfOk = sources.some((s) => s.name === "trueforge" && s.ok);
-
-  const totals = useMemo(() => {
-    const t = { sessions: sessions.length, errors: 0, toolErrors: 0, tokens: 0, tools: 0, approvals: 0 };
-    for (const s of sessions) {
-      if (s.error_turns > 0) t.errors++;
-      if (s.tool_errors > 0) t.toolErrors++;
-      if (s.pending_approvals > 0) t.approvals++;
-      t.tokens += (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
-      t.tools += s.tool_calls;
-    }
-    return t;
-  }, [sessions]);
 
   return (
     <div className="app">
@@ -168,7 +174,14 @@ export function App() {
         />
       ) : (
         <main>
-          <SessionTable sessions={sessions} onSelect={setSelected} filter={filter} />
+          <SessionTable
+            sessions={sessions}
+            onSelect={setSelected}
+            q={q}
+            setQ={setQ}
+            matched={matched}
+            onMore={() => setLimit((n) => n + PAGE)}
+          />
           <ReportPanel reports={reports} />
         </main>
       )}
@@ -211,33 +224,29 @@ function Stat({
 }
 
 function SessionTable({
-  sessions,
+  sessions: rows,
   onSelect,
-  filter,
+  q,
+  setQ,
+  matched,
+  onMore,
 }: {
   sessions: SessionSummary[];
   onSelect: (id: string) => void;
-  filter: Filter;
+  q: string;
+  setQ: (q: string) => void;
+  matched: number;
+  onMore: () => void;
 }) {
-  const [q, setQ] = useState("");
-  const rows = sessions.filter(
-    (s) =>
-      (!filter ||
-        (filter === "errors"
-          ? s.error_turns > 0
-          : filter === "toolErrors"
-            ? s.tool_errors > 0
-            : s.pending_approvals > 0)) &&
-      (!q ||
-        s.source.includes(q.toLowerCase()) ||
-        s.agent_name?.toLowerCase().includes(q.toLowerCase()) ||
-        s.title?.toLowerCase().includes(q.toLowerCase()) ||
-        s.id.includes(q)),
-  );
   return (
     <section className="card grow">
       <div className="cardHead">
         <h2>Sessions</h2>
+        {matched > rows.length && (
+          <span className="muted">
+            showing {rows.length} of {matched}
+          </span>
+        )}
         <input placeholder="filter by source, agent, title, id" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <table>
@@ -292,7 +301,9 @@ function SessionTable({
                 </div>
               </td>
               <td className="dim">
-                <div className="title" title={s.title ?? undefined}>
+                {/* Shipped sessions arrive without a title (it is prompt text
+                    and stays on the origin machine), so show the id as an id. */}
+                <div className={s.title ? "title" : "title dim"} title={s.title ?? s.id}>
                   {s.title ?? s.id.split(":").pop()!.slice(0, 18)}
                 </div>
               </td>
@@ -318,6 +329,11 @@ function SessionTable({
           )}
         </tbody>
       </table>
+      {matched > rows.length && (
+        <button className="more" onClick={onMore}>
+          show {Math.min(PAGE, matched - rows.length)} more
+        </button>
+      )}
     </section>
   );
 }

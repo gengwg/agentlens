@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { agentSummaries, db, sessionSource, sessionSummaries, sessionTrace } from "./db.js";
+import { agentSummaries, db, fleetTotals, sessionCount, sessionSource, sessionSummaries, sessionTrace } from "./db.js";
+import type { SessionQuery } from "./db.js";
 import { closeTurn, ensureSession, openTurn, putEvent, touch } from "./sources/emit.js";
 import { active } from "./sources/index.js";
 import { client, trueforgeOk } from "./sources/trueforge.js";
@@ -18,7 +19,15 @@ app.get("/api/agents", (c) => c.json(agentSummaries()));
 app.get("/api/reports", (c) =>
   c.json(db.prepare(`SELECT * FROM reports ORDER BY id DESC`).all()),
 );
-app.get("/api/sessions", (c) => c.json(sessionSummaries()));
+app.get("/api/sessions", (c) => {
+  const q = c.req.query("q")?.slice(0, 100) ?? "";
+  const filter = c.req.query("filter") as SessionQuery["filter"];
+  // A page by default; the table asks for more only when someone scrolls past it.
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 200, 1), 2000);
+  const opts: SessionQuery = { q, filter, limit };
+  return c.json({ sessions: sessionSummaries(opts), total: sessionCount(opts) });
+});
+app.get("/api/stats", (c) => c.json(fleetTotals()));
 app.get("/api/sessions/:id", (c) => c.json(sessionTrace(c.req.param("id"))));
 app.get("/api/sources", (c) => c.json(active.map((s) => ({ name: s.name, ...s.status() }))));
 
