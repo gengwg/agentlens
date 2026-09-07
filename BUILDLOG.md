@@ -461,3 +461,17 @@ because presenting a computed number as a charge would be exactly the sort of
 confident nonsense this was meant to avoid. On the local fleet, 16 of 18 models
 priced; the two misses are Claude Code's `<synthetic>` placeholder, which is not
 a model, and a free DeepSeek preview.
+
+## 2026-09-07 - A cost column
+
+Cost existed in the API and in /metrics but never in the table anyone actually
+looks at. It sits between Tokens and Duration now: what the harness charged, or
+what the tokens are worth at published prices, never both. An estimate is dimmed
+and says so on hover, so a computed number is never mistaken for a charge.
+
+Two deliberate blanks. Under a cent shows nothing, because $0.00 reads like a
+measurement and a blank reads like "not priced", which is the truth. And
+sessions from before the cache split stay empty rather than wrong.
+
+On the real fleet that is 27 of 194 rows priced today, one of them an estimate.
+The rest fill in as collectors write split-aware events.
