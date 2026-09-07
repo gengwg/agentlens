@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS reports (
   body TEXT NOT NULL,
   created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
+CREATE TABLE IF NOT EXISTS model_prices (
+  model TEXT PRIMARY KEY,
+  input REAL, output REAL, cache_read REAL, cache_write REAL
+);
 CREATE TABLE IF NOT EXISTS cursors (
   source TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -192,6 +196,51 @@ export function sessionCount(opts: SessionQuery = {}) {
   return (db.prepare(`SELECT COUNT(*) n FROM sessions s ${w.sql}`).get({ like: w.like }) as { n: number }).n;
 }
 
+// Resolve every model name seen in the store against the price table, so cost can
+// be a plain join instead of string matching in SQL. Cheap: a handful of models.
+const setPrice = db.prepare(
+  `INSERT INTO model_prices (model, input, output, cache_read, cache_write)
+   VALUES (@model, @input, @output, @cache_read, @cache_write)
+   ON CONFLICT(model) DO UPDATE SET input=@input, output=@output, cache_read=@cache_read, cache_write=@cache_write`,
+);
+
+export function refreshPrices(priceFor: (m: string) => { input: number; output: number; cache_read: number; cache_write: number } | undefined) {
+  const models = db
+    .prepare(`SELECT DISTINCT json_extract(raw,'$.model') m FROM events WHERE type = 'model.message' AND json_extract(raw,'$.model') IS NOT NULL`)
+    .all() as { m: string }[];
+  let priced = 0;
+  db.transaction(() => {
+    for (const { m } of models) {
+      const p = priceFor(m);
+      if (!p) continue;
+      setPrice.run({ model: m, ...p });
+      priced++;
+    }
+  })();
+  return { models: models.length, priced };
+}
+
+// Only events that carry a cache split can be priced: before that split, cache
+// reads were folded into inputTokens, and charging those at the input rate
+// overstates the bill by an order of magnitude. Older rows stay unpriced.
+const COMPUTED_COST = `(
+  SELECT SUM((COALESCE(json_extract(e.raw,'$.usage.inputTokens'),0) * p.input
+            + COALESCE(json_extract(e.raw,'$.usage.outputTokens'),0) * p.output
+            + COALESCE(json_extract(e.raw,'$.usage.cacheReadTokens'),0) * p.cache_read
+            + COALESCE(json_extract(e.raw,'$.usage.cacheWriteTokens'),0) * p.cache_write) / 1000000.0)
+  FROM events e JOIN model_prices p ON p.model = json_extract(e.raw,'$.model')
+  WHERE e.session_id = s.id AND e.type = 'model.message'
+    AND json_extract(e.raw,'$.usage.cacheReadTokens') IS NOT NULL)`;
+
+// What the harness said, if it said anything. OpenCode reports per message and
+// again on turn.done, so a turn total wins over the message costs it sums.
+const REPORTED_COST = `COALESCE(
+  NULLIF((SELECT SUM(json_extract(e.raw,'$.state.metrics.totalCostInUsd'))
+          FROM events e WHERE e.session_id = s.id AND e.type = 'turn.done'), 0),
+  (SELECT SUM(json_extract(e.raw,'$.cost'))
+   FROM events e WHERE e.session_id = s.id AND e.type = 'model.message'),
+  0)`;
+
 // Tokens that went in, however the adapter reported them: rows written before
 // cache was split out folded it into inputTokens, so summing all three keeps
 // the number continuous across that change.
@@ -223,7 +272,9 @@ export function sessionSummaries(opts: SessionQuery = {}) {
       (SELECT SUM(${TOKENS_IN}) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS input_tokens,
       (SELECT SUM(json_extract(e.raw,'$.usage.outputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS output_tokens,
       (SELECT SUM(strftime('%s', t.completed_at) - strftime('%s', t.created_at)) FROM turns t WHERE t.session_id = s.id AND t.completed_at IS NOT NULL) AS total_seconds,
-      ${PROBLEM_SCORE} AS problem_score
+      ${PROBLEM_SCORE} AS problem_score,
+      ${REPORTED_COST} AS reported_cost_usd,
+      COALESCE(${COMPUTED_COST}, 0) AS estimated_cost_usd
     FROM sessions s
     ${w.sql}
     ORDER BY ${opts.sort === "score" ? "problem_score DESC, s.updated_at DESC" : "s.updated_at DESC"}
@@ -281,15 +332,14 @@ export function fleetMetrics() {
     // OpenCode reports cost twice, per message and again summed on turn.done, so
     // a session takes its turn totals when it has them and its message costs
     // otherwise. Only what a harness reports is counted; nothing is priced here.
-    cost: rows<{ source: string; agent: string; usd: number }>(`
-      SELECT source, agent, SUM(usd) usd FROM (
+    // Reported and estimated are separate series: one is what the harness
+    // charged, the other is tokens times a published price, and conflating them
+    // would hide which is which.
+    cost: rows<{ source: string; agent: string; reported: number; estimated: number }>(`
+      SELECT source, agent, SUM(reported) reported, SUM(estimated) estimated FROM (
         SELECT s.source source, COALESCE(s.agent_name,'?') agent,
-          COALESCE(
-            NULLIF((SELECT SUM(json_extract(e.raw,'$.state.metrics.totalCostInUsd'))
-                    FROM events e WHERE e.session_id = s.id AND e.type = 'turn.done'), 0),
-            (SELECT SUM(json_extract(e.raw,'$.cost'))
-             FROM events e WHERE e.session_id = s.id AND e.type = 'model.message'),
-            0) usd
+          ${REPORTED_COST} reported,
+          CASE WHEN ${REPORTED_COST} > 0 THEN 0 ELSE COALESCE(${COMPUTED_COST}, 0) END estimated
         FROM sessions s
       ) GROUP BY source, agent`),
     approvals: rows<{ source: string; n: number }>(

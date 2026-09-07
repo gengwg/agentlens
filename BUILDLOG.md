@@ -429,3 +429,35 @@ before without scrolling.
 
 The plan said no new UI chrome. One toggle in the table header was needed
 anyway, because a ranking nobody can reach is not a feature.
+
+## 2026-09-07 - Pricing the sessions the harness never priced
+
+Cost only ever covered OpenCode and Roo Code, the two harnesses that report it
+themselves. Claude Code, the biggest spender here, showed nothing. Grafana's
+viewer prices it per session, so there was no excuse.
+
+The awkward part was where to get prices. Inventing them was the thing I had
+already refused to do once. models.dev is the database OpenCode itself prices
+from, it has every model in this fleet but two, and it is served as one JSON
+document. Its repository states no licence for the data, though, so shipping a
+copy inside the package was out. Prices are fetched once a week instead and
+cached under ~/.cache/agentlens. That is the only outbound request this tool
+makes; it sends nothing, `AGENTLENS_PRICES=off` stops it, and pointing the same
+variable at a file uses your own table. With no prices and no network, reported
+cost still works.
+
+Three details worth keeping. Harnesses name the same model differently -
+`anthropic/claude-opus-5`, `~moonshotai/kimi-latest`,
+`claude-sonnet-4-5-20250929` - so matching takes the part after the last slash
+and then drops trailing segments until something hits, which lets a dated build
+fall back to its base model. A session that reports its own cost is never
+second-guessed. And an event without a cache-token split cannot be priced at
+all: before v0.8.1 cache reads were folded into input, and charging those at the
+input rate overstates a bill by roughly ten times, so those rows stay unpriced
+rather than wrong.
+
+`agentlens_cost_usd_total` now carries basis="reported" or basis="estimated",
+because presenting a computed number as a charge would be exactly the sort of
+confident nonsense this was meant to avoid. On the local fleet, 16 of 18 models
+priced; the two misses are Claude Code's `<synthetic>` placeholder, which is not
+a model, and a free DeepSeek preview.

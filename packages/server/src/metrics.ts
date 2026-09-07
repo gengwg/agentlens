@@ -69,10 +69,16 @@ export function renderMetrics(): string {
   }
   out.push(block("agentlens_tokens_total", "Tokens reported by the harness.", "counter", tokens));
 
-  out.push(
-    block("agentlens_cost_usd_total", "Cost in USD, only where the harness reports it.", "counter",
-      m.cost.filter((r) => r.usd > 0).map((r) => ({ name: "agentlens_cost_usd_total", labels: { source: r.source, agent: r.agent }, value: r.usd }))),
-  );
+  // basis="reported" is what the harness charged; basis="estimated" is tokens
+  // priced from models.dev, for the harnesses that report nothing.
+  const cost: Line[] = [];
+  for (const r of m.cost) {
+    if (r.reported > 0)
+      cost.push({ name: "agentlens_cost_usd_total", labels: { source: r.source, agent: r.agent, basis: "reported" }, value: r.reported });
+    if (r.estimated > 0)
+      cost.push({ name: "agentlens_cost_usd_total", labels: { source: r.source, agent: r.agent, basis: "estimated" }, value: r.estimated });
+  }
+  out.push(block("agentlens_cost_usd_total", "Cost in USD: reported by the harness, or estimated from token counts.", "counter", cost));
   out.push(
     block("agentlens_pending_approvals", "Sessions whose newest turn is waiting on a human.", "gauge",
       m.approvals.map((r) => ({ name: "agentlens_pending_approvals", labels: { source: r.source }, value: r.n }))),
