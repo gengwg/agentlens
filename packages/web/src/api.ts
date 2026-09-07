@@ -50,8 +50,19 @@ const json = (r: Response) => {
   return r.json();
 };
 
+export type SessionPage = { sessions: SessionSummary[]; total: number };
+export type FleetTotals = {
+  sessions: number; errors: number; toolErrors: number; approvals: number; tools: number; tokens: number;
+};
+
 export const api = {
-  sessions: (): Promise<SessionSummary[]> => fetch("/api/sessions").then(json),
+  sessions: (opts: { q?: string; filter?: string | null; limit?: number }): Promise<SessionPage> => {
+    const p = new URLSearchParams({ limit: String(opts.limit ?? 200) });
+    if (opts.q) p.set("q", opts.q);
+    if (opts.filter) p.set("filter", opts.filter);
+    return fetch(`/api/sessions?${p}`).then(json);
+  },
+  stats: (): Promise<FleetTotals> => fetch("/api/stats").then(json),
   trace: (id: string): Promise<Trace> => fetch(`/api/sessions/${id}`).then(json),
   agents: (): Promise<any[]> => fetch("/api/agents").then(json),
   reports: (): Promise<Report[]> => fetch("/api/reports").then(json),
