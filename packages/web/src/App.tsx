@@ -13,6 +13,10 @@ const fmtTokens = (n: number | null | undefined) =>
         : n >= 1000
           ? `${(n / 1000).toFixed(1)}k`
           : String(n);
+// Under a cent is noise at this scale, and a blank cell says "not priced"
+// more honestly than $0.00 does.
+const fmtCost = (n: number | null | undefined) =>
+  !n || n < 0.005 ? null : n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`;
 const fmtDur = (s: number | null | undefined) =>
   s == null ? "-" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
 const fmtAge = (iso: string | null | undefined) => {
@@ -284,6 +288,7 @@ function SessionTable({
             <th>Tools</th>
             <th>Subagents</th>
             <th>Tokens</th>
+            <th>Cost</th>
             <th>Duration</th>
             <th>Age</th>
             <th>Updated</th>
@@ -338,6 +343,16 @@ function SessionTable({
               </td>
               <td>{s.subagents}</td>
               <td>{fmtTokens((s.input_tokens ?? 0) + (s.output_tokens ?? 0))}</td>
+              <td>
+                {/* What the harness charged, or what its tokens are worth at
+                    published prices. Never both, and never a guess presented as
+                    a charge: an estimate is dimmed and says so on hover. */}
+                {fmtCost(s.reported_cost_usd) ?? (
+                  <span className="est" title="estimated from token counts and published prices">
+                    {fmtCost(s.estimated_cost_usd) ?? ""}
+                  </span>
+                )}
+              </td>
               <td>{fmtDur(s.total_seconds)}</td>
               <td className="dim">{s.pending_approvals > 0 && s.approval_since ? fmtAge(s.approval_since) : "-"}</td>
               <td className="dim">{fmtTime(s.updated_at)}</td>

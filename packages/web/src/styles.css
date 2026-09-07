@@ -61,6 +61,7 @@ main { display: flex; gap: 16px; align-items: flex-start; }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--dim); padding: 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 td { padding: 9px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.est { color: var(--dim); }
 td .title.dim { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
 td .title { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 td .agent { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
