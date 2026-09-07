@@ -322,3 +322,40 @@ approval render properly was a small lesson in the UI's own rules, since the
 trace resolves a tool name through the call that requested it and only shows
 Allow/Deny for TrueForge sessions. Also, with a fleet of two machines the token
 total read 10267.1M, so the formatter learned about billions.
+
+## 2026-09-07 - Handing the charts to Grafana
+
+Grafana shipped Agent Observability, with coding-agent plugins for Claude Code,
+Cursor, OpenCode and Codex that default to metadata-only capture and even have
+a local mode. That is this project's problem statement with a product team
+behind it, so the interesting question stopped being "how do we compete" and
+became "what do we do that they cannot". Their plugins install hooks, so they
+see sessions started after installation. AgentLens reads the logs the harnesses
+already wrote: 3,112 sessions and 62,243 model calls across two machines, none
+of it instrumented in advance.
+
+So: AgentLens collects, Grafana renders. `GET /metrics` exposes the fleet in
+Prometheus format and `docs/grafana-dashboard.json` is an importable dashboard.
+No charts were added to the AgentLens UI, deliberately.
+
+The metrics are recomputed from SQLite per scrape rather than counted in
+memory, which keeps the collector and the exporter from disagreeing and makes a
+deleted database read as a counter reset. Grouped by source, agent and model
+only; a session label would have made cardinality unbounded. 462 series and
+44 KB at 3,110 sessions, 0.22 s per scrape, so the planned 15-second memo was
+not needed. The tool-error and denial predicates are the same SQL the dashboard
+uses, so a tool error means one thing in both places.
+
+Two things worth writing down. Cost was already being captured by OpenCode and
+Roo Code and had never been summed anywhere: the shared database turned out to
+hold $1,391 of reported spend, which nobody had seen. And OpenCode reports cost
+twice, per message and again on turn.done, so a naive sum double counts; a
+session now takes its turn totals when it has them and its message costs
+otherwise. Nothing is priced locally, because adapters fold cache reads into
+input tokens and cache reads are most of the 10.3B tokens while costing a
+fraction, so a price table would produce confident nonsense.
+
+Verified with a throwaway Prometheus and Grafana in Docker scraping the demo
+fleet under a synthetic load generator: every panel binds and draws, and
+/metrics agrees with /api/stats on sessions, tool calls and tokens to the digit.
+The screenshot in the README is that, not anyone's real fleet.

@@ -219,6 +219,60 @@ export function fleetTotals() {
   };
 }
 
+// One pass per series for the Prometheus endpoint. Grouped by source, agent and
+// model only: labelling by session or turn would make the cardinality unbounded.
+// Reuses TOOL_ERROR/DENIED so a tool error counts the same here as in the UI.
+export function fleetMetrics() {
+  const rows = <T>(sql: string) => db.prepare(sql).all() as T[];
+  return {
+    sessions: rows<{ source: string; agent: string; n: number }>(
+      `SELECT source, COALESCE(agent_name,'?') agent, COUNT(*) n FROM sessions GROUP BY source, agent`,
+    ),
+    turns: rows<{ source: string; agent: string; n: number; errors: number; running: number }>(`
+      SELECT s.source, COALESCE(s.agent_name,'?') agent, COUNT(*) n,
+        SUM(t.status = 'error') errors, SUM(t.status = 'running') running
+      FROM turns t JOIN sessions s ON s.id = t.session_id GROUP BY s.source, agent`),
+    tools: rows<{ source: string; agent: string; total: number; errors: number; denied: number }>(`
+      SELECT s.source, COALESCE(s.agent_name,'?') agent, COUNT(*) total,
+        SUM(CASE WHEN ${TOOL_ERROR} THEN 1 ELSE 0 END) errors,
+        SUM(CASE WHEN ${DENIED} THEN 1 ELSE 0 END) denied
+      FROM events e JOIN sessions s ON s.id = e.session_id
+      WHERE e.type = 'tool.response' GROUP BY s.source, agent`),
+    tokens: rows<{ source: string; agent: string; model: string; input: number; output: number }>(`
+      SELECT s.source, COALESCE(s.agent_name,'?') agent,
+        COALESCE(json_extract(e.raw,'$.model'),'unknown') model,
+        COALESCE(SUM(json_extract(e.raw,'$.usage.inputTokens')), 0) input,
+        COALESCE(SUM(json_extract(e.raw,'$.usage.outputTokens')), 0) output
+      FROM events e JOIN sessions s ON s.id = e.session_id
+      WHERE e.type = 'model.message' GROUP BY s.source, agent, model`),
+    // OpenCode reports cost twice, per message and again summed on turn.done, so
+    // a session takes its turn totals when it has them and its message costs
+    // otherwise. Only what a harness reports is counted; nothing is priced here.
+    cost: rows<{ source: string; agent: string; usd: number }>(`
+      SELECT source, agent, SUM(usd) usd FROM (
+        SELECT s.source source, COALESCE(s.agent_name,'?') agent,
+          COALESCE(
+            NULLIF((SELECT SUM(json_extract(e.raw,'$.state.metrics.totalCostInUsd'))
+                    FROM events e WHERE e.session_id = s.id AND e.type = 'turn.done'), 0),
+            (SELECT SUM(json_extract(e.raw,'$.cost'))
+             FROM events e WHERE e.session_id = s.id AND e.type = 'model.message'),
+            0) usd
+        FROM sessions s
+      ) GROUP BY source, agent`),
+    approvals: rows<{ source: string; n: number }>(
+      `SELECT source, COUNT(*) n FROM sessions s WHERE ${MATCH.approval} GROUP BY source`,
+    ),
+    // Cumulative bucket counts, which is the shape a Prometheus histogram wants.
+    duration: rows<{ source: string; le1: number; le5: number; le15: number; le60: number; le300: number; total: number; sum: number }>(`
+      SELECT s.source,
+        SUM(d <= 1) le1, SUM(d <= 5) le5, SUM(d <= 15) le15, SUM(d <= 60) le60, SUM(d <= 300) le300,
+        COUNT(*) total, COALESCE(SUM(d), 0) sum
+      FROM (SELECT session_id, strftime('%s', completed_at) - strftime('%s', created_at) d
+            FROM turns WHERE completed_at IS NOT NULL) x
+      JOIN sessions s ON s.id = x.session_id GROUP BY s.source`),
+  };
+}
+
 export function sessionTrace(sessionId: string) {
   const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
   const turns = db

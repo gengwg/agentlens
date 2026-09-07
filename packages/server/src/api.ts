@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming";
 import { agentSummaries, db, fleetTotals, sessionCount, sessionSource, sessionSummaries, sessionTrace } from "./db.js";
 import type { SessionQuery } from "./db.js";
 import { closeTurn, ensureSession, openTurn, putEvent, touch } from "./sources/emit.js";
+import { renderMetrics } from "./metrics.js";
 import { active } from "./sources/index.js";
 import { client, trueforgeOk } from "./sources/trueforge.js";
 
@@ -28,6 +29,8 @@ app.get("/api/sessions", (c) => {
   return c.json({ sessions: sessionSummaries(opts), total: sessionCount(opts) });
 });
 app.get("/api/stats", (c) => c.json(fleetTotals()));
+// For Prometheus to scrape; Grafana draws the charts (README "Send it to Grafana").
+app.get("/metrics", (c) => c.text(renderMetrics(), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" }));
 app.get("/api/sessions/:id", (c) => c.json(sessionTrace(c.req.param("id"))));
 app.get("/api/sources", (c) => c.json(active.map((s) => ({ name: s.name, ...s.status() }))));
 
