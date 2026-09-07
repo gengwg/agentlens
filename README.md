@@ -128,8 +128,10 @@ patterns from Gitleaks; see [NOTICE](NOTICE)): cloud and provider API keys,
 GitHub and Slack tokens, private-key blocks, connection strings with
 credentials, bearer tokens. Their tier-2 key/value guesses are deliberately
 left out, since `DB_PASSWORD=hunter2` in a transcript is often the thing you
-opened the transcript to find. `AGENTLENS_REDACT=0` turns masking off, and rows
-written before this existed are not rewritten.
+opened the transcript to find. `AGENTLENS_REDACT=0` turns masking off. Masking guards writes, so anything
+stored before it existed stays as it was; `agentlens redact-history` reports
+what is left and `--apply` masks it, copying the database first. It is safe to
+run repeatedly, since masking an already-masked row changes nothing.
 
 Claude Code and dsh transcripts are tailed with per-file cursors (subagent
 transcripts become threads); OpenCode is polled read-only from its SQLite
