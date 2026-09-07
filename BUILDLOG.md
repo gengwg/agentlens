@@ -290,3 +290,35 @@ would have reported the fleet wrong. Same data, 85 KB and 0.12 s per poll.
 
 Also: shipped sessions have no title, so the title column showed a raw id and
 read like a corrupted one. Ids now render as ids, with the full value on hover.
+
+## 2026-09-06 - Three chores: a real Roo log, a workspace that is not recorded, and safe screenshots
+
+Roo Code was the last adapter with real data available, so it got checked
+against three actual tasks. It was written from the XML tool protocol described
+in the public format notes; the real logs use the native one, where the
+end-of-turn marker is a tool call named attempt_completion rather than an XML
+element. Nothing closed a turn, so every Roo session sat running until the
+30-minute sweep, and the workspace regex never matched, so they all grouped
+under "roo-code" instead of a repo name. Both fixed: turns end at
+attempt_completion whichever protocol carries it, and the workspace comes from
+history_item.json, which simply has a field for it. Two smaller things fell out
+of that. A task can complete more than once, so an assistant message with no
+open turn opens one instead of being dropped, and a completed turn stays
+addressable long enough for the tool result that acknowledges it to land. After
+the fix every count matches the raw files exactly: 48 model messages, 52 tool
+responses, 4437771 input tokens for the largest task, and re-polling changes
+nothing.
+
+Antigravity's workspace question closed as "cannot be done". On a machine with
+three conversations only one had a row in conversation_summaries.db, and for the
+other two the workspace appears nowhere on disk: the only paths in those blobs
+are the CLI's own config directories. Documented instead of guessed.
+
+The README screenshots were stale because a fresh capture would have shown real
+repo names and prompts. Now `npm run demo` writes an invented fleet, and the
+screenshots come from that: eight sessions across six sources, with a failed
+turn, tool errors, subagents, a running turn and an approval gate. Making that
+approval render properly was a small lesson in the UI's own rules, since the
+trace resolves a tool name through the call that requested it and only shows
+Allow/Deny for TrueForge sessions. Also, with a fleet of two machines the token
+total read 10267.1M, so the formatter learned about billions.

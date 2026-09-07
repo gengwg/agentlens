@@ -1,15 +1,18 @@
 # AgentLens
 
 Local observability for coding-agent harnesses: a fleet view and trace viewer
-for every Claude Code, OpenCode, dsh, Cursor Agent, Antigravity CLI, and
-TrueForge session on your machine (plus Codex CLI, Gemini CLI, Roo Code, and
-Cline, experimental), and an investigator agent that diagnoses the bad ones.
+for every Claude Code, OpenCode, dsh, Roo Code, Cursor Agent, Antigravity CLI,
+and TrueForge session on your machine (plus Codex CLI, Gemini CLI, and Cline,
+experimental), and an investigator agent that diagnoses the bad ones.
 
 Started at the Agent Harness Hackathon (WeMakeDevs + TrueFoundry, Aug 2026).
 
 ![Fleet dashboard](docs/sessions.png)
 
-![Investigator trace](docs/trace.png)
+![Session trace with subagents and an approval gate](docs/trace.png)
+
+Both screenshots come from the invented fleet that `npm run demo` writes, so
+they show the layout without anyone's transcripts.
 
 ## What it does
 
@@ -47,6 +50,11 @@ sessions show up within seconds, and running ones update live. Everything stays
 on your machine: the server binds to loopback and reads the logs in place.
 
 The package is [@gengwg/agentlens](https://www.npmjs.com/package/@gengwg/agentlens).
+
+No harness logs to look at yet? `AGENTLENS_DB=demo.db npm run demo -w
+packages/server` writes an invented fleet (eight sessions across six sources,
+with a failure, a pending approval and a running turn) into a throwaway
+database; start the server with the same `AGENTLENS_DB` to browse it.
 It pulls in `better-sqlite3`, which downloads a prebuilt native binary (or
 compiles one) during install.
 
@@ -77,18 +85,24 @@ view are shared. `AGENTLENS_SOURCES` pins the list (comma-separated names).
 | `trueforge` | tested | `http://localhost:8790` (`TRUEFORGE_URL`) |
 | `cursor` | tested on small samples | `~/.cursor` (`CURSOR_HOME`), Cursor Agent CLI transcripts |
 | `antigravity` | tested on small samples | `~/.gemini/antigravity-cli` (`ANTIGRAVITY_HOME`) |
+| `roo-code` | tested | VS Code `globalStorage` task dirs (`ROO_TASKS_DIR`) |
 | `codex` | experimental | `~/.codex` (`CODEX_HOME`) |
 | `gemini` | partly verified | `~/.gemini` (`GEMINI_HOME`); Gemini CLI is enterprise-only since June 2026 |
-| `roo-code`, `cline` | experimental | VS Code `globalStorage` task dirs (`ROO_TASKS_DIR`) |
+| `cline` | experimental | VS Code `globalStorage` task dirs, same layout as Roo Code |
 
 Experimental adapters are written from the public log formats and have
 synthetic tests only; open an issue with a sample session if one misreads yours.
+Roo Code is checked against real tasks: it uses the native tool protocol, where
+`attempt_completion` ends a turn and the workspace comes from `history_item.json`.
+Cline shares the layout but no sample was available.
 The Gemini adapter reads the current JSONL chat log and the older JSON
 document; its prompt handling is verified against a real run, but Gemini CLI
 refuses individual accounts, so its reply, tool, and token fields are not.
 Cursor Agent transcripts record no per-message timestamps, tool results, or
 token usage, so event times are interpolated between the chat's start and end.
-Antigravity CLI records no token usage. The Cursor IDE's own chats (not the CLI)
+Antigravity CLI records no token usage, and only conversations with a row in
+`conversation_summaries.db` know their workspace; the rest, print-mode runs among
+them, group under the source name. The Cursor IDE's own chats (not the CLI)
 are not read.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
 (`8791`), `AGENTLENS_HOST` (`127.0.0.1`, see Shared server below).
