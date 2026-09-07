@@ -2,9 +2,9 @@ import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, rea
 import { userInfo } from "node:os";
 import { basename, join } from "node:path";
 import { db, getCursor, insertEvent, setCursor, turnAt, upsertSession, upsertTurn } from "../db.js";
-import { textOf, usageOf } from "./emit.js";
-import type { Source } from "./types.js";
 import { maskText } from "../redact-secrets.js";
+import { renameSession, textOf, usageOf } from "./emit.js";
+import type { Source } from "./types.js";
 
 // Claude Code writes ~/.claude/projects/<encoded-cwd>/<session>.jsonl, one JSON
 // record per line, append-only. Subagent transcripts live next to it under
@@ -56,7 +56,6 @@ export function readNewLines(path: string, offset: number): { lines: string[]; o
 
 const sessionExists = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
 const touchSession = db.prepare(`UPDATE sessions SET updated_at = ? WHERE id = ? AND updated_at < ?`);
-const setTitle = db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`);
 const closeTurn = db.prepare(
   `UPDATE turns SET status = CASE WHEN status = 'error' THEN 'error' ELSE ? END, completed_at = ? WHERE id = ?`,
 );
@@ -121,7 +120,7 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
 
     if (r.type === "ai-title" || r.type === "custom-title") {
       state.title = r.aiTitle ?? r.customTitle ?? state.title;
-      if (state.title && sessionExists.get(ctx.sessionId)) setTitle.run(maskText(state.title), ctx.sessionId);
+      if (state.title && sessionExists.get(ctx.sessionId)) renameSession(ctx.sessionId, state.title);
       continue;
     }
 

@@ -5,6 +5,7 @@ import { db, insertEvent, seedSession, sessionTrace, upsertEvent } from "./fixtu
 
 const { redactSecrets } = await import("../src/redact-secrets.ts");
 const { upsertSession, upsertTurn } = await import("../src/db.ts");
+const { renameSession } = await import("../src/sources/emit.ts");
 
 // Fake credentials are assembled at runtime rather than written out. They are
 // invented, but they match real formats by design, and a literal in the source
@@ -134,4 +135,14 @@ test("a turn error carrying a key is masked", () => {
   assert.ok(!row.error.includes(fake.openaiProject));
   assert.ok(row.error.includes("[REDACTED:openai-project-key]"));
   assert.ok(row.error.startsWith("auth failed for"), "the rest of the message survives");
+});
+
+test("a harness that renames a session cannot smuggle a secret past the mask", () => {
+  // dsh names a session after it starts, overwriting the title. That write goes
+  // through renameSession now rather than an adapter's own UPDATE.
+  seedSession("r-rename", { source: "dsh" });
+  renameSession("r-rename", `debug ${fake.awsKey} in staging`);
+  const row = db.prepare(`SELECT title FROM sessions WHERE id = ?`).get("r-rename") as { title: string };
+  assert.ok(!row.title.includes(fake.awsKey));
+  assert.ok(row.title.includes("[REDACTED:aws-access-token]") && row.title.includes("in staging"));
 });
