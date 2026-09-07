@@ -45,3 +45,46 @@ test("cline: native tool_use blocks and error results", () => {
   assert.equal(s.tool_errors, 1);
   assert.equal(s.running, 1);
 });
+
+// Shaped after real Roo Code tasks: native tool calls, attempt_completion as a
+// tool rather than an XML element, and the workspace from history_item.json.
+test("roo-code: native attempt_completion ends a turn, and a second one starts a new turn", () => {
+  const call = (id: string, name: string) => ({ type: "tool_use", id, name, input: {} });
+  const api = [
+    { role: "user", ts: T0, content: [{ type: "text", text: "<task>\nship it\n</task>" }] },
+    { role: "assistant", ts: T0 + 1000, content: [call("u1", "search_files")] },
+    { role: "user", ts: T0 + 2000, content: [{ type: "tool_result", tool_use_id: "u1", content: "two hits" }] },
+    { role: "assistant", ts: T0 + 3000, content: [{ type: "text", text: "found it" }, call("u2", "attempt_completion")] },
+    { role: "user", ts: T0 + 4000, content: [{ type: "tool_result", tool_use_id: "u2", content: "ok" }] },
+    // The user replies without a <task> tag, so the model simply continues.
+    { role: "assistant", ts: T0 + 5000, content: [call("u3", "read_file")] },
+    { role: "user", ts: T0 + 6000, content: [{ type: "tool_result", tool_use_id: "u3", content: "contents" }] },
+    { role: "assistant", ts: T0 + 7000, content: [call("u4", "attempt_completion")] },
+  ];
+  const ui = [{ ts: T0, type: "say", say: "text", text: "" }, { ts: T0 + 7500, type: "say", say: "text", text: "" }];
+  db.transaction(() => ingestTask("roo-code", "task-native", api as any, ui, "/home/dev/checkout"))();
+
+  const s = sessionSummaries().find((x) => x.id === "task-native")!;
+  assert.equal(s.agent_name, "checkout", "workspace beats the environment_details regex");
+  assert.equal(s.turn_count, 2, "each completion ends a turn");
+  assert.equal(s.running, 0);
+  // Three results for four calls: the final completion is never acknowledged,
+  // which is also true of the real tasks (53 calls, 52 results).
+  assert.equal(s.tool_calls, 3, "the result acknowledging a completion still lands on its turn");
+
+  const t = sessionTrace("task-native");
+  assert.equal(t.events.filter((e) => e.type === "turn.done").length, 2);
+  assert.equal(t.events.filter((e) => e.type === "model.message").length, 4);
+  assert.equal(t.turns.filter((x: any) => x.completed_at).length, 2);
+});
+
+test("roo-code: a task interrupted mid-tool stays running", () => {
+  const api = [
+    { role: "user", ts: T0, content: [{ type: "text", text: "<task>go</task>" }] },
+    { role: "assistant", ts: T0 + 1000, content: [{ type: "tool_use", id: "u1", name: "execute_command", input: {} }] },
+  ];
+  db.transaction(() => ingestTask("roo-code", "task-cut", api as any, [{ ts: T0 + 1100, type: "say", say: "text", text: "" }]))();
+  const s = sessionSummaries().find((x) => x.id === "task-cut")!;
+  assert.equal(s.running, 1, "no completion means the turn has not ended");
+  assert.equal(s.agent_name, "roo-code", "no workspace and no cwd falls back to the source");
+});
