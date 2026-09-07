@@ -17,6 +17,8 @@ export type SessionSummary = {
   input_tokens: number | null;
   output_tokens: number | null;
   total_seconds: number | null;
+  reported_cost_usd: number | null;
+  estimated_cost_usd: number | null;
 };
 
 export type TraceEvent = {
