@@ -8,6 +8,7 @@ export const MAX_TOOL_OUTPUT = 64 * 1024;
 
 const sessionExists = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
 const setTitle = db.prepare(`UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')`);
+const setBranch = db.prepare(`UPDATE sessions SET branch = ? WHERE id = ? AND branch IS NULL`);
 const touchStmt = db.prepare(`UPDATE sessions SET updated_at = ? WHERE id = ? AND updated_at < ?`);
 const openTurnStmt = db.prepare(
   `INSERT OR IGNORE INTO turns (id, session_id, created_at, status, ingested) VALUES (?, ?, ?, 'running', 1)`,
@@ -33,6 +34,11 @@ export function ensureSession(s: {
 }) {
   if (sessionExists.get(s.id)) {
     if (s.title) setTitle.run(s.title, s.id);
+    // A branch handed over by a shipper belongs to that session and fills a
+    // gap on a row that arrived before branches were sent. A branch derived
+    // from a local working directory is not backfilled here: on an old session
+    // that would record today's checkout, which is not where the work happened.
+    if (s.branch) setBranch.run(s.branch, s.id);
     return;
   }
   upsertSession.run({
