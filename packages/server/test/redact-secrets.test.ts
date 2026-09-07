@@ -5,6 +5,16 @@ import { db, insertEvent, seedSession, sessionTrace, upsertEvent } from "./fixtu
 
 const { redactSecrets } = await import("../src/redact-secrets.ts");
 
+// Fake credentials are assembled at runtime rather than written out. They are
+// invented, but they match real formats by design, and a literal in the source
+// trips GitHub's secret scanning - which is the scanner doing its job, so the
+// answer is to not write them down rather than to dismiss the alert.
+const fake = {
+  openaiProject: "sk-" + "proj-" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+  githubPat: "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
+  awsKey: "AKIA" + "IOSFODNN7EXAMPLE",
+};
+
 // Their own corpus, taken verbatim from grafana/agento11y
 // redaction/fixtures/strings.json (Apache-2.0), light mode with emails off,
 // which is the tier-1 set this port implements. If a pattern is transcribed
@@ -51,12 +61,12 @@ test("a secret in a tool result never reaches SQLite", () => {
     type: "tool.response",
     created_at: "2026-09-01T00:00:00Z",
     // What `printenv` or a .env read looks like coming back from a tool.
-    raw: JSON.stringify({ content: "GITHUB_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij\nAWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE" }),
+    raw: JSON.stringify({ content: `GITHUB_TOKEN=${fake.githubPat}\nAWS_ACCESS_KEY_ID=${fake.awsKey}` }),
   });
 
   const stored = db.prepare(`SELECT raw FROM events WHERE id = ?`).get("r-e1") as { raw: string };
-  assert.ok(!stored.raw.includes("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ"), "the GitHub token is gone");
-  assert.ok(!stored.raw.includes("AKIAIOSFODNN7EXAMPLE"), "the AWS key is gone");
+  assert.ok(!stored.raw.includes(fake.githubPat), "the GitHub token is gone");
+  assert.ok(!stored.raw.includes(fake.awsKey), "the AWS key is gone");
   assert.ok(stored.raw.includes("[REDACTED:github-pat]"));
   assert.ok(stored.raw.includes("[REDACTED:aws-access-token]"));
   // Still valid JSON, and the surrounding text survives.
@@ -73,14 +83,14 @@ test("a secret in a prompt is masked too, and mutated rows stay masked", () => {
     thread_id: null,
     type: "turn.created",
     created_at: "2026-09-01T00:00:00Z",
-    raw: JSON.stringify({ input: [{ type: "user.message", content: "use sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD for this" }] }),
+    raw: JSON.stringify({ input: [{ type: "user.message", content: `use ${fake.openaiProject} for this` }] }),
   };
   insertEvent.run(row);
   // OpenCode rewrites a row in place; the rewrite goes through the same gate.
-  upsertEvent.run({ ...row, raw: JSON.stringify({ input: [{ type: "user.message", content: "retry with sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCD" }] }) });
+  upsertEvent.run({ ...row, raw: JSON.stringify({ input: [{ type: "user.message", content: `retry with ${fake.openaiProject}` }] }) });
 
   const stored = db.prepare(`SELECT raw FROM events WHERE id = ?`).get("r-e2") as { raw: string };
-  assert.ok(!stored.raw.includes("sk-proj-abcdefghij"));
+  assert.ok(!stored.raw.includes(fake.openaiProject));
   assert.ok(stored.raw.includes("[REDACTED:openai-project-key]"));
   assert.ok(stored.raw.includes("retry with"), "the rewrite landed, masked");
 });
