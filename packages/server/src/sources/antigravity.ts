@@ -56,8 +56,11 @@ export function ingestSteps(sessionId: string, steps: any[], state: FileState, w
   if (last) touch(sessionId, last);
 }
 
-// history.jsonl covers interactive runs; conversation_summaries.db also has
-// print-mode runs (workspace_uris is a JSON list of file:// URIs).
+// history.jsonl covers interactive runs; conversation_summaries.db has a row per
+// conversation the CLI summarized (workspace_uris is a JSON list of file:// URIs).
+// Neither covers every run: on a machine with three conversations only one had a
+// row, and the others record their workspace nowhere on disk, so they fall back
+// to the source name.
 function workspaces(home: string): Record<string, string> {
   const out: Record<string, string> = {};
   const dbPath = join(home, "conversation_summaries.db");
