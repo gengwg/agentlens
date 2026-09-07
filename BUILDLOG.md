@@ -619,3 +619,18 @@ the whole table on startup is wrong - `EXPLAIN QUERY PLAN` shows
 `SEARCH events USING INDEX idx_events_seq`, because the index is created before
 the backfill runs. And the uncommitted layout change it flagged was committed
 before the review was read.
+
+## 2026-09-07 - The writer that escaped the net
+
+The reviewer came back and found one: dsh writes a session title through its own
+inline `UPDATE`, which the sweep for call sites missed because it was not a
+named prepared statement. Inert on the append path, where the title lands before
+the session row exists, but the truncation reset in `poll()` re-reads a whole
+file against an existing session and would put the raw title back over the
+masked one.
+
+Fixing that one line would have left the same trap for the next adapter, so
+titles now have a single named writer, `renameSession` in emit.ts, which masks.
+Claude Code's own overwrite moved onto it too. Grepping `UPDATE sessions SET
+title` across the sources returns emit.ts and nothing else, which is the
+property worth having: an adapter cannot reach that column directly.
