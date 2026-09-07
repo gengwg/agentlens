@@ -58,6 +58,7 @@ export function ingestRecords(sessionId: string, records: any[], state: FileStat
         ensureSession({
           id: sessionId,
           source: SOURCE,
+          cwd: state.cwd,
           agent_name: state.cwd ? basename(state.cwd) : SOURCE,
           title: textOf(d.content).slice(0, 80),
           created_at: state.created_at ?? at ?? iso(Date.now()),

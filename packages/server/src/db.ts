@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { branchOf } from "./git-branch.js";
 import { redactEventRaw } from "./redact-secrets.js";
 
 export const db = new Database(process.env.AGENTLENS_DB ?? "agentlens.db");
@@ -12,7 +13,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT,
   updated_at TEXT,
   created_by TEXT,
-  source TEXT DEFAULT 'trueforge'
+  source TEXT DEFAULT 'trueforge',
+  branch TEXT
 );
 CREATE TABLE IF NOT EXISTS turns (
   id TEXT PRIMARY KEY,
@@ -60,6 +62,7 @@ for (const sql of [
   `ALTER TABLE turns ADD COLUMN pending_actions INTEGER DEFAULT 0`,
   `ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'trueforge'`,
   `ALTER TABLE events ADD COLUMN seq INTEGER`,
+  `ALTER TABLE sessions ADD COLUMN branch TEXT`,
 ]) {
   try {
     db.exec(sql);
@@ -76,11 +79,28 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_events_seq ON events(seq)`);
 db.exec(`UPDATE events SET seq = rowid WHERE seq IS NULL`);
 const NEXT_SEQ = `(SELECT IFNULL(MAX(seq), 0) + 1 FROM events)`;
 
-export const upsertSession = db.prepare(`
-  INSERT INTO sessions (id, agent_name, title, created_at, updated_at, created_by, source)
-  VALUES (@id, @agent_name, @title, @created_at, @updated_at, @created_by, @source)
-  ON CONFLICT(id) DO UPDATE SET title=@title, updated_at=MAX(COALESCE(updated_at,''), @updated_at)
+const upsertSessionStmt = db.prepare(`
+  INSERT INTO sessions (id, agent_name, title, created_at, updated_at, created_by, source, branch)
+  VALUES (@id, @agent_name, @title, @created_at, @updated_at, @created_by, @source, @branch)
+  ON CONFLICT(id) DO UPDATE SET title=@title, updated_at=MAX(COALESCE(updated_at,''), @updated_at),
+    branch=COALESCE(branch, @branch)
 `);
+
+// Adapters pass the working directory they already know; the branch is read
+// from .git/HEAD once and never overwritten, so a session keeps the branch it
+// started on. Callers that have no directory (TrueForge) simply get null.
+export const upsertSession = {
+  run: (s: {
+    id: string;
+    agent_name: string;
+    title: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    created_by: string;
+    source: string;
+    cwd?: string | null;
+  }) => upsertSessionStmt.run({ ...s, cwd: undefined, branch: branchOf(s.cwd) }),
+};
 
 export const sessionSource = db.prepare(`SELECT source FROM sessions WHERE id = ?`);
 
@@ -203,7 +223,10 @@ export type SessionQuery = {
 
 function where(opts: SessionQuery) {
   const parts: string[] = [];
-  if (opts.q) parts.push(`(s.id LIKE @like OR s.agent_name LIKE @like OR s.title LIKE @like OR s.source LIKE @like)`);
+  if (opts.q)
+    parts.push(
+      `(s.id LIKE @like OR s.agent_name LIKE @like OR s.title LIKE @like OR s.source LIKE @like OR s.branch LIKE @like)`,
+    );
   if (opts.filter && MATCH[opts.filter]) parts.push(MATCH[opts.filter]);
   return { sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "", like: `%${opts.q ?? ""}%` };
 }
