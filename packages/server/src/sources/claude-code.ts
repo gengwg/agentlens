@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { db, getCursor, insertEvent, setCursor, turnAt, upsertSession, upsertTurn } from "../db.js";
 import { textOf, usageOf } from "./emit.js";
 import type { Source } from "./types.js";
+import { maskText } from "../redact-secrets.js";
 
 // Claude Code writes ~/.claude/projects/<encoded-cwd>/<session>.jsonl, one JSON
 // record per line, append-only. Subagent transcripts live next to it under
@@ -120,7 +121,7 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
 
     if (r.type === "ai-title" || r.type === "custom-title") {
       state.title = r.aiTitle ?? r.customTitle ?? state.title;
-      if (state.title && sessionExists.get(ctx.sessionId)) setTitle.run(state.title, ctx.sessionId);
+      if (state.title && sessionExists.get(ctx.sessionId)) setTitle.run(maskText(state.title), ctx.sessionId);
       continue;
     }
 
@@ -202,7 +203,7 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
         });
         state.usage_due = false;
       }
-      if (r.isApiErrorMessage && !ctx.threadId) failTurn.run(content.slice(0, 500), turnId);
+      if (r.isApiErrorMessage && !ctx.threadId) failTurn.run(maskText(content.slice(0, 500)), turnId);
       event(ctx, turnId, eid(ctx, r.uuid), "model.message", at, raw);
       continue;
     }
