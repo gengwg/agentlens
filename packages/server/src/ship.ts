@@ -39,6 +39,9 @@ export function redact(type: string, raw: any): unknown {
 }
 
 export function collect(since: string): { sessions: Row[]; turns: Row[]; events: Row[]; watermark: string } {
+  // Turns are few and their status changes, so a changed session resends all of
+  // them; events are append-only and a long session has thousands, so only the
+  // ones written since the last pass go (null timestamps always do).
   const sessions = db
     .prepare(`SELECT * FROM sessions WHERE updated_at > ? ORDER BY updated_at`)
     .all(since) as Row[];
@@ -47,8 +50,11 @@ export function collect(since: string): { sessions: Row[]; turns: Row[]; events:
   const list = ids.map(() => "?").join(",");
   const turns = db.prepare(`SELECT * FROM turns WHERE session_id IN (${list})`).all(...ids) as Row[];
   const events = db
-    .prepare(`SELECT id, session_id, turn_id, thread_id, type, created_at, raw FROM events WHERE session_id IN (${list})`)
-    .all(...ids) as Row[];
+    .prepare(
+      `SELECT id, session_id, turn_id, thread_id, type, created_at, raw FROM events
+       WHERE session_id IN (${list}) AND (created_at > ? OR created_at IS NULL)`,
+    )
+    .all(...ids, since) as Row[];
   return {
     sessions: sessions.map((s) => ({
       id: `${HOST}:${s.id}`,
@@ -80,6 +86,10 @@ export function collect(since: string): { sessions: Row[]; turns: Row[]; events:
   };
 }
 
+// One session's history can be tens of thousands of events; send in chunks so
+// a first pass is not a single enormous request.
+const CHUNK = 5000;
+
 async function post(url: string, body: unknown) {
   const res = await fetch(new URL("/api/ingest", url), {
     method: "POST",
@@ -93,11 +103,14 @@ async function post(url: string, body: unknown) {
 export async function shipOnce(url: string, source: string) {
   const key = `ship:${url}`;
   const { since } = getCursor<{ since: string }>("ship", key) ?? { since: "" };
-  const batch = collect(since);
-  if (!batch.sessions.length) return { sessions: 0, turns: 0, events: 0 };
-  const sent = await post(url, { source, ...batch });
-  setCursor("ship", key, { since: batch.watermark });
-  return sent as { sessions: number; turns: number; events: number };
+  const { sessions, turns, events, watermark } = collect(since);
+  if (!sessions.length) return { sessions: 0, turns: 0, events: 0 };
+  // Sessions and turns first, so every event has somewhere to land.
+  await post(url, { source, sessions, turns, events: events.slice(0, CHUNK) });
+  for (let i = CHUNK; i < events.length; i += CHUNK)
+    await post(url, { source, events: events.slice(i, i + CHUNK) });
+  setCursor("ship", key, { since: watermark });
+  return { sessions: sessions.length, turns: turns.length, events: events.length };
 }
 
 // `agentlens ship --to <url> [--once] [--interval 60]`
@@ -112,7 +125,12 @@ export async function shipMain(argv: string[]) {
     process.exit(2);
   }
   const source = arg("--source") ?? "shipped";
-  const every = Number(arg("--interval") ?? 60) * 1000;
+  const seconds = Number(arg("--interval") ?? 60);
+  if (!Number.isFinite(seconds) || seconds < 1) {
+    console.error(`ship: --interval must be a number of seconds, got "${arg("--interval")}"`);
+    process.exit(2);
+  }
+  const every = seconds * 1000;
   const run = async () => {
     try {
       const sent = await shipOnce(url, source);
