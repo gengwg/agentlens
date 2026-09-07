@@ -13,6 +13,7 @@ export const {
   getCursor,
   setCursor,
   sweepStaleTurns,
+  refreshPrices,
 } = await import("../src/db.ts");
 export const { app } = await import("../src/api.ts");
 export const { turnRow } = await import("../src/sources/trueforge.ts");

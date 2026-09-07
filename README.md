@@ -202,8 +202,22 @@ the dip is the collector restarting.
 Series are grouped by `source`, `agent` and `model` only, never by session, so
 cardinality stays bounded. Counters are recomputed from SQLite on each scrape
 rather than counted in memory, which means a deleted database reads as a
-counter reset. `agentlens_cost_usd_total` covers only harnesses that report
-cost themselves (OpenCode, Roo Code): it is a floor, not a total.
+counter reset.
+
+`agentlens_cost_usd_total` carries a `basis` label. `reported` is what the
+harness charged (OpenCode and Roo Code do; the rest report nothing).
+`estimated` is token counts priced from [models.dev](https://models.dev), the
+same database OpenCode prices itself from. A session is never both. Only events
+that record cache tokens separately can be estimated, since before that split
+cache reads were folded into input and pricing them at the input rate overstates
+a bill roughly tenfold, so history from before v0.8.1 stays unpriced.
+
+Prices are fetched once a week and cached in `~/.cache/agentlens/prices.json`.
+That is the one request AgentLens makes to the internet, it sends nothing, and
+`AGENTLENS_PRICES=off` stops it. `AGENTLENS_PRICES=/path/to.json` uses your own
+table instead, as `{"model": {"input": 5, "output": 25, "cache_read": 0.5,
+"cache_write": 6.25}}` in dollars per million tokens. With no prices and no
+network, reported cost still works and nothing else changes.
 
 `/metrics` carries agent and repository names, and no more: no prompts, no
 titles, no tool output. It has no authentication, like the rest of the API, so

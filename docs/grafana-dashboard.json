@@ -297,8 +297,8 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Reported cost",
-      "description": "Only what the harness itself reports. OpenCode and Roo Code do; the others leave it unpriced, so this is a floor, not a total.",
+      "title": "Cost",
+      "description": "What harnesses report (OpenCode, Roo Code) plus, for the ones that report nothing, tokens priced from models.dev. Only events carrying a cache-token split can be estimated, so early history is missing.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -720,7 +720,8 @@
           "expr": "sum by (agent) (rate(agentlens_cost_usd_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval])) * 3600",
           "legendFormat": "{{agent}}"
         }
-      ]
+      ],
+      "description": "Reported and estimated cost combined; a session is never both."
     },
     {
       "id": 12,

@@ -52,6 +52,7 @@ export function App() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [filter, setFilter] = useState<Filter>(null);
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState<"recent" | "score">("recent");
   const [limit, setLimit] = useState(PAGE);
   const [matched, setMatched] = useState(0);
   const [totals, setTotals] = useState<FleetTotals>({
@@ -77,7 +78,7 @@ export function App() {
   // The server does the matching: a fleet of several thousand sessions is too
   // much to send every few seconds, let alone render.
   const refresh = () => {
-    Promise.all([api.sessions({ q, filter, limit }), api.stats(), api.reports(), api.sources()])
+    Promise.all([api.sessions({ q, filter, limit, sort }), api.stats(), api.reports(), api.sources()])
       .then(([page, t, r, src]) => {
         setSessions(page.sessions);
         setMatched(page.total);
@@ -97,9 +98,9 @@ export function App() {
       clearTimeout(debounce);
       clearInterval(t);
     };
-  }, [q, filter, limit]);
+  }, [q, filter, limit, sort]);
   // A new search starts at the first page again.
-  useEffect(() => setLimit(PAGE), [q, filter]);
+  useEffect(() => setLimit(PAGE), [q, filter, sort]);
 
   const investigate = async (sessionId?: string) => {
     setBusy(true);
@@ -188,6 +189,8 @@ export function App() {
             q={q}
             setQ={setQ}
             matched={matched}
+            sort={sort}
+            setSort={setSort}
             onMore={() => setLimit((n) => n + PAGE)}
           />
           <ReportPanel reports={reports} />
@@ -237,6 +240,8 @@ function SessionTable({
   q,
   setQ,
   matched,
+  sort,
+  setSort,
   onMore,
 }: {
   sessions: SessionSummary[];
@@ -244,6 +249,8 @@ function SessionTable({
   q: string;
   setQ: (q: string) => void;
   matched: number;
+  sort: "recent" | "score";
+  setSort: (s: "recent" | "score") => void;
   onMore: () => void;
 }) {
   return (
@@ -255,6 +262,15 @@ function SessionTable({
             showing {rows.length} of {matched}
           </span>
         )}
+        {/* Recency buries the interesting sessions once a scheduled job is in
+            the fleet, so the table can rank by what looks worst instead. */}
+        <button
+          className={`chip sort ${sort === "score" ? "on" : ""}`}
+          title="Rank by failed turns, tool failures, stalls and tool calls per turn"
+          onClick={() => setSort(sort === "score" ? "recent" : "score")}
+        >
+          {sort === "score" ? "worst first" : "newest first"}
+        </button>
         <input placeholder="filter by source, agent, title, id" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <table>
