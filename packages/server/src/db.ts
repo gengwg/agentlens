@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { branchOf } from "./git-branch.js";
-import { redactEventRaw } from "./redact-secrets.js";
+import { maskText, redactEventRaw } from "./redact-secrets.js";
 
 export const db = new Database(process.env.AGENTLENS_DB ?? "agentlens.db");
 db.pragma("journal_mode = WAL");
@@ -102,7 +102,9 @@ export const upsertSession = {
     // A shipped session carries the sender's branch; there is no working
     // directory to read on the receiving machine.
     branch?: string | null;
-  }) => upsertSessionStmt.run({ ...s, cwd: undefined, branch: s.branch ?? branchOf(s.cwd) }),
+    // A title is the first 80 characters of the first prompt, so it can carry a
+    // secret exactly as a prompt can.
+  }) => upsertSessionStmt.run({ ...s, cwd: undefined, title: maskText(s.title), branch: s.branch ?? branchOf(s.cwd) }),
 };
 
 export const sessionSource = db.prepare(`SELECT source FROM sessions WHERE id = ?`);
@@ -145,11 +147,17 @@ export function sweepStaleTurns() {
   return sweepStmt.run().changes;
 }
 
-export const upsertTurn = db.prepare(`
+const upsertTurnStmt = db.prepare(`
   INSERT INTO turns (id, session_id, created_at, completed_at, status, error, ingested, pending_actions)
   VALUES (@id, @session_id, @created_at, @completed_at, @status, @error, @ingested, @pending_actions)
   ON CONFLICT(id) DO UPDATE SET completed_at=@completed_at, status=@status, error=@error, ingested=@ingested, pending_actions=@pending_actions
 `);
+
+// A turn's error is model or tool text and can quote a key just as an event can.
+export const upsertTurn = {
+  run: (t: Record<string, unknown> & { error: string | null }) =>
+    upsertTurnStmt.run({ ...t, error: maskText(t.error) }),
+};
 
 const insertEventStmt = db.prepare(`
   INSERT OR IGNORE INTO events (id, session_id, turn_id, thread_id, type, created_at, raw, seq)
@@ -214,7 +222,7 @@ const PROBLEM_SCORE = `
   + MIN(COALESCE((SELECT MAX(gap) FROM (
       SELECT strftime('%s', e.created_at) - LAG(strftime('%s', e.created_at)) OVER (ORDER BY e.created_at) gap
       FROM events e WHERE e.session_id = s.id AND e.created_at IS NOT NULL)), 0) / 60, 30)
-  + MIN(MAX((SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response')
+  + MIN(MAX((SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response') * 1.0
       / MAX((SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id), 1) - 10, 0), 30)`;
 
 export type SessionQuery = {

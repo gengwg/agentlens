@@ -105,7 +105,9 @@ Antigravity CLI records no token usage, and only conversations with a row in
 them, group under the source name. The Cursor IDE's own chats (not the CLI)
 are not read.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
-(`8791`), `AGENTLENS_HOST` (`127.0.0.1`, see Shared server below).
+(`8791`), `AGENTLENS_HOST` (`127.0.0.1`, see Shared server below),
+`AGENTLENS_CORS_ORIGIN` (`http://localhost:5173`, only needed if you serve the
+dashboard from somewhere other than the Vite dev server).
 
 A session records the git branch it started on, read from `.git/HEAD` in the
 harness's working directory - no subprocess, and it works when git is absent.
@@ -291,8 +293,8 @@ infra traces. TrueForge emits no telemetry itself, so the exporter belongs here.
 The store and UI are harness-neutral. Adapters exist for TrueForge, Claude Code,
 OpenCode, dsh, Codex CLI, Gemini CLI, Roo Code, and Cline; each new harness is
 one file under `packages/server/src/sources/`, or a client of the ingest API.
-A shared company server (per-machine shippers pushing to one AgentLens) is the
-next step and is not built yet.
+A shared company server, with per-machine shippers pushing metadata to one
+AgentLens, is built: see "Shared server" above.
 
 ## Optional: investigator agent
 

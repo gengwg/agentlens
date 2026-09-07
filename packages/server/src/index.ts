@@ -45,9 +45,17 @@ function serveMain() {
   const host = process.env.AGENTLENS_HOST ?? "127.0.0.1";
   if (host !== "127.0.0.1" && host !== "localhost")
     console.log(`warning: listening on ${host} with no authentication`);
-  serve({ fetch: app.fetch, port, hostname: host }, () =>
+  const server = serve({ fetch: app.fetch, port, hostname: host }, () =>
     console.log(`agentlens on http://${host === "0.0.0.0" ? "localhost" : host}:${port}`),
   );
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    console.error(
+      err.code === "EADDRINUSE"
+        ? `port ${port} is already in use; set PORT to something else`
+        : `server: ${err.message}`,
+    );
+    process.exit(1);
+  });
 }
 
 // `agentlens ship ...` is a client of another AgentLens, not a server.
