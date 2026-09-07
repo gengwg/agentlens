@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { app } from "./api.js";
+import { backfillMain } from "./backfill.js";
 import { startCollector } from "./collector.js";
 import { refreshPrices } from "./db.js";
 import { loadPrices, priceFor } from "./prices.js";
@@ -60,4 +61,6 @@ function serveMain() {
 
 // `agentlens ship ...` is a client of another AgentLens, not a server.
 if (process.argv[2] === "ship") await shipMain(process.argv.slice(3));
+// A one-off pass over history written before masking existed.
+else if (process.argv[2] === "redact-history") backfillMain(process.argv.slice(3));
 else serveMain();
