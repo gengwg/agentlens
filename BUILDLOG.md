@@ -634,3 +634,29 @@ titles now have a single named writer, `renameSession` in emit.ts, which masks.
 Claude Code's own overwrite moved onto it too. Grepping `UPDATE sessions SET
 title` across the sources returns emit.ts and nothing else, which is the
 property worth having: an adapter cannot reach that column directly.
+
+## 2026-09-07 - Masking the history that predates masking
+
+Masking guards writes, which leaves everything written before it in the clear:
+event bodies from before v0.10.0, titles and turn errors from before v0.12.4.
+`agentlens redact-history` walks the store and masks what is left, dry by
+default, copying the database before it writes.
+
+It can run over every row without knowing which are old, because masking is
+idempotent, and that is worth stating precisely rather than assuming: a mask
+literal contains no pattern, so re-masking returns the text byte for byte. The
+one case that looks like it should bite does not - `[REDACTED:bearer-token]`
+contains "earer" and so trips the cheap hint gate, but the bearer pattern needs
+whitespace after it and finds a hyphen. Verified for all twenty-two.
+
+`seq` is deliberately left alone. A shipper has already sent these events with
+their content stripped, so there is nothing for a shared server to catch up on,
+and bumping it would resend tens of thousands of rows to no purpose.
+
+On the local store: 17 events, no titles, no errors. Integrity check clean, row
+counts identical, second pass finds nothing.
+
+And a thing worth remembering rather than the code change: the local dev server
+had been running since the previous morning, holding a checkout from before any
+of this existed, quietly writing unmasked rows the whole time. A backfill is
+worth nothing until the process that made the mess is restarted.
