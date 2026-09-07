@@ -547,3 +547,18 @@ branch normally comes from reading `.git/HEAD` and there is no working
 directory to read on the shared server. Ingest bounds it at 200 characters and
 ignores anything that is not a string, on the principle that everything
 crossing that endpoint is untrusted.
+
+## 2026-09-07 - The branch that would not travel
+
+Shipping the branch appeared to work and did nothing. A full resend of 2,973
+sessions moved 91,552 events to the shared server and left every branch null.
+
+`ensureSession` returns early when a session already exists, which is the right
+shape for the common case and meant a shipped branch could only ever land on a
+session the receiver had never seen. Every session had been seen. The fix is
+the same one already used for titles: fill the gap when the field is empty.
+
+Only an explicit branch from a shipper backfills. A branch derived from a local
+working directory still lands once, when the session is first seen, because
+filling it in later would stamp today's checkout onto work done on another
+branch. That distinction is now a comment next to the code that makes it.
