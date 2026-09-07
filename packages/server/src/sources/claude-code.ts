@@ -188,6 +188,7 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
           updated_at: at,
           created_by: userInfo().username,
           source: SOURCE,
+          cwd: r.cwd,
         });
       }
       const u = m.usage;

@@ -1,6 +1,7 @@
 export type SessionSummary = {
   id: string;
   source: string;
+  branch: string | null;
   agent_name: string;
   title: string | null;
   created_at: string;

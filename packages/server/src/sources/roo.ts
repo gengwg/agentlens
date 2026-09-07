@@ -35,7 +35,7 @@ export function ingestTask(source: string, taskId: string, api: ApiMsg[], ui: Ui
   const first = api.find((m) => m.role === "user");
   const firstText = first ? stripTags(textOf(first.content)) : "";
   const home = workspace ?? cwd;
-  ensureSession({ id: sid, source, agent_name: home ? basename(home) : source, title: firstText.slice(0, 80) || null, created_at: at(api[0], 0) });
+  ensureSession({ id: sid, source, cwd: home, agent_name: home ? basename(home) : source, title: firstText.slice(0, 80) || null, created_at: at(api[0], 0) });
   let turn: string | undefined;
   let n = 0;
   let assistantIdx = 0;

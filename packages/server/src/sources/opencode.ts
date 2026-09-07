@@ -192,6 +192,7 @@ export function createOpenCode(src: Database): Source {
           updated_at: iso(s.time_updated),
           created_by: userInfo().username,
           source: SOURCE,
+          cwd: s.directory,
         });
       }
       for (const m of messages) {
