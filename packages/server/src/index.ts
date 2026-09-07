@@ -6,6 +6,8 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { app } from "./api.js";
 import { startCollector } from "./collector.js";
+import { refreshPrices } from "./db.js";
+import { loadPrices, priceFor } from "./prices.js";
 import { startMcpServer } from "./mcp.js";
 import { shipMain } from "./ship.js";
 import { detectSources } from "./sources/index.js";
@@ -13,6 +15,17 @@ import { detectSources } from "./sources/index.js";
 function serveMain() {
   const port = Number(process.env.PORT ?? 8788);
   startCollector(detectSources());
+  // Pricing is a bonus: fetched in the background, and every failure is a log
+  // line rather than a broken start. Refreshed hourly so models seen after
+  // boot get priced too.
+  const prices = async () => {
+    const known = await loadPrices();
+    if (!known) return;
+    const { models, priced } = refreshPrices((m) => priceFor(m));
+    console.log(`prices: ${priced}/${models} models priced from ${known} known`);
+  };
+  prices().catch((err) => console.error(`prices: ${(err as Error).message}`));
+  setInterval(() => prices().catch(() => {}), 60 * 60 * 1000).unref();
   startMcpServer(Number(process.env.MCP_PORT ?? 8791));
 
   // Serve the built dashboard from the same process so one URL is enough.

@@ -12,18 +12,15 @@ function buildMcp() {
     "list_problem_sessions",
     {
       description:
-        "List sessions with failed turns, repeated tool failures, or unusually slow turns, worst first. Start an investigation here.",
+        "List sessions ranked by how much they look like they went wrong: failed turns, repeated tool failures, long stalls, and unusual numbers of tool calls per turn. Worst first. Start an investigation here.",
       inputSchema: {},
     },
     async () => {
-      const rows = sessionSummaries()
-        // Tool errors alone are routine (a search that missed, a command that
-        // exited non-zero); only a repeated pattern is worth investigating.
-        .filter(
-          (s: any) =>
-            s.error_turns > 0 || s.tool_errors >= 3 || (s.total_seconds ?? 0) > 120,
-        )
-        .slice(0, 20);
+      // Ranked in SQL rather than filtered on thresholds, so this really is
+      // worst first; a session with nothing wrong scores zero and is dropped.
+      const rows = sessionSummaries({ sort: "score", limit: 20 }).filter(
+        (s: any) => s.problem_score > 0,
+      );
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 1) }] };
     },
   );

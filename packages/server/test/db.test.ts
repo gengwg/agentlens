@@ -217,3 +217,50 @@ test("token rollups treat cache as tokens in, old rows and new alike", () => {
   assert.equal(s.input_tokens, 2000, "both rows report 1000 tokens in");
   assert.equal(s.output_tokens, 20);
 });
+
+test("problem_score ranks sessions by what looks wrong, not by recency", () => {
+  seedSession("s-quiet", {
+    agent: "quiet",
+    updated_at: "2026-09-20T00:00:00Z", // newest, but nothing wrong with it
+    turns: [{ id: "sq1", created_at: "2026-09-01T00:00:00Z", completed_at: "2026-09-01T00:00:05Z" }],
+    events: [{ id: "sqe1", turn_id: "sq1", type: "tool.response", created_at: "2026-09-01T00:00:01Z", raw: { content: "ok" } }],
+  });
+  seedSession("s-broken", {
+    agent: "broken",
+    updated_at: "2026-09-01T00:00:00Z", // older, but two turns failed
+    turns: [
+      { id: "sb1", status: "error", created_at: "2026-09-01T00:00:00Z" },
+      { id: "sb2", status: "error", created_at: "2026-09-01T00:01:00Z" },
+    ],
+    events: [{ id: "sbe1", turn_id: "sb1", type: "tool.response", created_at: "2026-09-01T00:00:01Z", raw: { content: "boom", error: true } }],
+  });
+
+  const quiet = summary("s-quiet");
+  const broken = summary("s-broken");
+  assert.equal(quiet.problem_score, 0, "a session with nothing wrong scores zero");
+  assert.equal(broken.problem_score, 105, "two failed turns (100) plus one tool error (5)");
+
+  const byScore = sessionSummaries({ sort: "score", limit: 50 }).map((s: any) => s.id);
+  const byRecent = sessionSummaries({ limit: 50 }).map((s: any) => s.id);
+  assert.ok(byScore.indexOf("s-broken") < byScore.indexOf("s-quiet"), "worst first");
+  assert.ok(byRecent.indexOf("s-quiet") < byRecent.indexOf("s-broken"), "newest first is unchanged");
+});
+
+test("problem_score counts a stall, and ignores a declined tool", () => {
+  seedSession("s-stalled", {
+    turns: [{ id: "ss1", created_at: "2026-09-01T00:00:00Z", completed_at: "2026-09-01T00:20:00Z" }],
+    events: [
+      { id: "sse1", turn_id: "ss1", type: "model.message", created_at: "2026-09-01T00:00:00Z" },
+      // Twelve minutes of nothing happening inside one turn.
+      { id: "sse2", turn_id: "ss1", type: "model.message", created_at: "2026-09-01T00:12:00Z" },
+    ],
+  });
+  assert.equal(summary("s-stalled").problem_score, 12, "one point per stalled minute");
+
+  seedSession("s-declined", {
+    source: "claude-code",
+    turns: [{ id: "sd1" }],
+    events: [{ id: "sde1", turn_id: "sd1", type: "tool.response", raw: { content: "The user doesn't want to proceed with this tool use.", error: true } }],
+  });
+  assert.equal(summary("s-declined").problem_score, 0, "declining a tool is a choice, not a fault");
+});

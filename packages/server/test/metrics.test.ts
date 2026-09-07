@@ -85,8 +85,13 @@ test("cost counts what a harness reported, without double counting OpenCode", ()
     events: [{ id: "mr-e1", type: "model.message", raw: { cost: 0.25 } }],
   });
   const { series } = scrape();
-  assert.equal(series.get(`agentlens_cost_usd_total{source="opencode",agent="billing"}`), 0.05);
-  assert.equal(series.get(`agentlens_cost_usd_total{source="roo-code",agent="docs"}`), 0.25);
+  assert.equal(series.get(`agentlens_cost_usd_total{source="opencode",agent="billing",basis="reported"}`), 0.05);
+  assert.equal(series.get(`agentlens_cost_usd_total{source="roo-code",agent="docs",basis="reported"}`), 0.25);
+  assert.equal(
+    series.get(`agentlens_cost_usd_total{source="opencode",agent="billing",basis="estimated"}`),
+    undefined,
+    "a harness that reports its own cost is not also estimated",
+  );
 });
 
 test("pending approvals are a gauge, and running turns are reported", () => {
