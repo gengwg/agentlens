@@ -158,7 +158,27 @@ const MATCH = {
   approval: `(SELECT t.pending_actions FROM turns t WHERE t.session_id = s.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) > 0`,
 } as const;
 
-export type SessionQuery = { limit?: number; q?: string; filter?: keyof typeof MATCH | null };
+// Recency buries the interesting sessions once a cron job is in the fleet, so a
+// session can also be ranked by how much it looks like it went wrong. Weights
+// are blunt on purpose: a failed turn dominates, repeated tool failures matter
+// next, then a long stall inside the session, then an unusual number of tool
+// calls per turn (the shape of a loop). Each term is capped so one signal cannot
+// swamp the rest, and every part reuses the predicates the UI already uses.
+const PROBLEM_SCORE = `
+  (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.status = 'error') * 50
+  + MIN((SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND ${TOOL_ERROR}), 20) * 5
+  + MIN(COALESCE((SELECT MAX(gap) FROM (
+      SELECT strftime('%s', e.created_at) - LAG(strftime('%s', e.created_at)) OVER (ORDER BY e.created_at) gap
+      FROM events e WHERE e.session_id = s.id AND e.created_at IS NOT NULL)), 0) / 60, 30)
+  + MIN(MAX((SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response')
+      / MAX((SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id), 1) - 10, 0), 30)`;
+
+export type SessionQuery = {
+  limit?: number;
+  q?: string;
+  filter?: keyof typeof MATCH | null;
+  sort?: "recent" | "score";
+};
 
 function where(opts: SessionQuery) {
   const parts: string[] = [];
@@ -202,10 +222,11 @@ export function sessionSummaries(opts: SessionQuery = {}) {
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'thread.created') AS subagents,
       (SELECT SUM(${TOKENS_IN}) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS input_tokens,
       (SELECT SUM(json_extract(e.raw,'$.usage.outputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS output_tokens,
-      (SELECT SUM(strftime('%s', t.completed_at) - strftime('%s', t.created_at)) FROM turns t WHERE t.session_id = s.id AND t.completed_at IS NOT NULL) AS total_seconds
+      (SELECT SUM(strftime('%s', t.completed_at) - strftime('%s', t.created_at)) FROM turns t WHERE t.session_id = s.id AND t.completed_at IS NOT NULL) AS total_seconds,
+      ${PROBLEM_SCORE} AS problem_score
     FROM sessions s
     ${w.sql}
-    ORDER BY s.updated_at DESC
+    ORDER BY ${opts.sort === "score" ? "problem_score DESC, s.updated_at DESC" : "s.updated_at DESC"}
     ${opts.limit ? "LIMIT @limit" : ""}
   `,
     )

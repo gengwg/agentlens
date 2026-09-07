@@ -25,7 +25,8 @@ app.get("/api/sessions", (c) => {
   const filter = c.req.query("filter") as SessionQuery["filter"];
   // A page by default; the table asks for more only when someone scrolls past it.
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 200, 1), 2000);
-  const opts: SessionQuery = { q, filter, limit };
+  const sort = c.req.query("sort") === "score" ? "score" : "recent";
+  const opts: SessionQuery = { q, filter, limit, sort };
   return c.json({ sessions: sessionSummaries(opts), total: sessionCount(opts) });
 });
 app.get("/api/stats", (c) => c.json(fleetTotals()));

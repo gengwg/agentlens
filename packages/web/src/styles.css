@@ -46,6 +46,8 @@ input:focus { outline: none; border-color: var(--accent); }
 main { display: flex; gap: 16px; align-items: flex-start; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .card.grow { overflow-x: auto; }
+.cardHead .sort { margin-right: 8px; }
+.cardHead .sort.on { border-color: var(--accent); color: var(--accent); }
 .cardHead .muted { color: var(--dim); font-size: 12px; margin-left: auto; margin-right: 12px; }
 .more { display: block; width: 100%; padding: 10px; background: none; border: none; border-top: 1px solid var(--border); color: var(--accent); cursor: pointer; font: inherit; }
 .more:hover { background: #1c2129; }

@@ -56,10 +56,11 @@ export type FleetTotals = {
 };
 
 export const api = {
-  sessions: (opts: { q?: string; filter?: string | null; limit?: number }): Promise<SessionPage> => {
+  sessions: (opts: { q?: string; filter?: string | null; limit?: number; sort?: string }): Promise<SessionPage> => {
     const p = new URLSearchParams({ limit: String(opts.limit ?? 200) });
     if (opts.q) p.set("q", opts.q);
     if (opts.filter) p.set("filter", opts.filter);
+    if (opts.sort) p.set("sort", opts.sort);
     return fetch(`/api/sessions?${p}`).then(json);
   },
   stats: (): Promise<FleetTotals> => fetch("/api/stats").then(json),
