@@ -38,23 +38,37 @@ export function redact(type: string, raw: any): unknown {
   }
 }
 
-export function collect(since: string): { sessions: Row[]; turns: Row[]; events: Row[]; watermark: string } {
-  // Turns are few and their status changes, so a changed session resends all of
-  // them; events are append-only and a long session has thousands, so only the
-  // ones written since the last pass go (null timestamps always do).
-  const sessions = db
-    .prepare(`SELECT * FROM sessions WHERE updated_at > ? ORDER BY updated_at`)
-    .all(since) as Row[];
-  const ids = sessions.map((s) => s.id);
-  if (!ids.length) return { sessions: [], turns: [], events: [], watermark: since };
-  const list = ids.map(() => "?").join(",");
-  const turns = db.prepare(`SELECT * FROM turns WHERE session_id IN (${list})`).all(...ids) as Row[];
+export function collect(
+  since: string,
+  seq = 0,
+): { sessions: Row[]; turns: Row[]; events: Row[]; watermark: string; seq: number } {
+  // Two cursors. Sessions and turns resend whole because their status mutates
+  // and there are few of them; events go by `seq`, which is bumped on every
+  // write, so a record a source rewrites in place (OpenCode fills in token
+  // counts as a step streams) ships again even though its timestamp did not
+  // move.
   const events = db
     .prepare(
-      `SELECT id, session_id, turn_id, thread_id, type, created_at, raw FROM events
-       WHERE session_id IN (${list}) AND (created_at > ? OR created_at IS NULL)`,
+      `SELECT id, session_id, turn_id, thread_id, type, created_at, raw, seq FROM events
+       WHERE seq > ? ORDER BY seq`,
     )
-    .all(...ids, since) as Row[];
+    .all(seq) as Row[];
+  const byId = new Map<string, Row>();
+  for (const s of db.prepare(`SELECT * FROM sessions WHERE updated_at > ?`).all(since) as Row[]) byId.set(s.id, s);
+  const getSession = db.prepare(`SELECT * FROM sessions WHERE id = ?`);
+  for (const e of events) {
+    if (byId.has(e.session_id)) continue;
+    const s = getSession.get(e.session_id) as Row | undefined;
+    if (s) byId.set(s.id, s);
+  }
+  const sessions = [...byId.values()];
+  const nextSeq = events.length ? events[events.length - 1].seq : seq;
+  const watermark = sessions.reduce((m, s) => (s.updated_at > m ? s.updated_at : m), since);
+  if (!sessions.length) return { sessions: [], turns: [], events: [], watermark, seq: nextSeq };
+  const list = sessions.map(() => "?").join(",");
+  const turns = db
+    .prepare(`SELECT * FROM turns WHERE session_id IN (${list})`)
+    .all(...sessions.map((s) => s.id)) as Row[];
   return {
     sessions: sessions.map((s) => ({
       id: `${HOST}:${s.id}`,
@@ -73,16 +87,22 @@ export function collect(since: string): { sessions: Row[]; turns: Row[]; events:
       // An error message is model or tool text; only the fact travels.
       error: t.error ? "error" : null,
     })),
-    events: events.map((e) => ({
-      id: `${HOST}:${e.id}`,
-      session_id: `${HOST}:${e.session_id}`,
-      turn_id: `${HOST}:${e.turn_id}`,
-      thread_id: e.thread_id,
-      type: e.type,
-      created_at: e.created_at,
-      raw: redact(e.type, JSON.parse(e.raw)),
-    })),
-    watermark: sessions[sessions.length - 1].updated_at,
+    // An event whose session row is not written yet (adapters create it at the
+    // first model reply) has nowhere to land; it is dropped, not held back, so
+    // a session that never gets one cannot stall the cursor.
+    events: events
+      .filter((e) => byId.has(e.session_id))
+      .map((e) => ({
+        id: `${HOST}:${e.id}`,
+        session_id: `${HOST}:${e.session_id}`,
+        turn_id: `${HOST}:${e.turn_id}`,
+        thread_id: e.thread_id,
+        type: e.type,
+        created_at: e.created_at,
+        raw: redact(e.type, JSON.parse(e.raw)),
+      })),
+    watermark,
+    seq: nextSeq,
   };
 }
 
@@ -102,14 +122,14 @@ async function post(url: string, body: unknown) {
 
 export async function shipOnce(url: string, source: string) {
   const key = `ship:${url}`;
-  const { since } = getCursor<{ since: string }>("ship", key) ?? { since: "" };
-  const { sessions, turns, events, watermark } = collect(since);
+  const cursor = getCursor<{ since: string; seq?: number }>("ship", key) ?? { since: "" };
+  const { sessions, turns, events, watermark, seq } = collect(cursor.since, cursor.seq ?? 0);
   if (!sessions.length) return { sessions: 0, turns: 0, events: 0 };
   // Sessions and turns first, so every event has somewhere to land.
   await post(url, { source, sessions, turns, events: events.slice(0, CHUNK) });
   for (let i = CHUNK; i < events.length; i += CHUNK)
     await post(url, { source, events: events.slice(i, i + CHUNK) });
-  setCursor("ship", key, { since: watermark });
+  setCursor("ship", key, { since: watermark, seq });
   return { sessions: sessions.length, turns: turns.length, events: events.length };
 }
 
@@ -126,17 +146,23 @@ export async function shipMain(argv: string[]) {
   }
   const source = arg("--source") ?? "shipped";
   const seconds = Number(arg("--interval") ?? 60);
-  if (!Number.isFinite(seconds) || seconds < 1) {
-    console.error(`ship: --interval must be a number of seconds, got "${arg("--interval")}"`);
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > 86400) {
+    console.error(`ship: --interval must be 1..86400 seconds, got "${arg("--interval")}"`);
     process.exit(2);
   }
   const every = seconds * 1000;
+  // A pass is many posts; skip a tick rather than let two overlap on one cursor.
+  let busy = false;
   const run = async () => {
+    if (busy) return;
+    busy = true;
     try {
       const sent = await shipOnce(url, source);
       if (sent.sessions) console.log(`shipped ${sent.sessions} sessions, ${sent.turns} turns, ${sent.events} events to ${url}`);
     } catch (err) {
       console.error(`ship: ${(err as Error).message}`);
+    } finally {
+      busy = false;
     }
   };
   await run();
