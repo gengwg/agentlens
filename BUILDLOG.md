@@ -265,3 +265,28 @@ placeholders the redactor writes. Two smaller ones from the same review: a pass
 is now many requests, so a slow one no longer overlaps the next tick on the
 same cursor, and --interval has an upper bound, since anything past ~24 days
 overflows Node's timer and clamps to 1 ms.
+
+## 2026-09-06 - A second machine, and the fleet view stopped scaling
+
+Started a shipper on a second machine to test the shared server with more than
+one host in it. The first pass moved 2912 sessions, 5692 turns and 90931 events
+in under nine seconds, and the receiving database confirmed what the design
+promised: two hosts, no event missing its turn, and not one content field or
+title in any shipped row.
+
+The interesting part was the data. That machine had 2719 OpenCode sessions
+since June, almost all one turn with two tool calls, arriving in pairs every
+thirty minutes: a cron job, not a person. Useful to see, and it made the real
+problem obvious. /api/sessions had no limit, so the dashboard fetched every
+session every three seconds and rendered them all in one table: 1.3 MB and
+1.35 s per poll at 3110 sessions, with the rollup's twelve correlated
+subqueries running for every row before most were thrown away.
+
+Paging and matching now happen in SQL. The table asks for 200 rows and grows
+by 200; the search box and the stat pills are query parameters, with the pills
+using EXISTS so the rollup never runs for a session that will not be shown.
+The header stats moved to their own aggregate endpoint, since summing the page
+would have reported the fleet wrong. Same data, 85 KB and 0.12 s per poll.
+
+Also: shipped sessions have no title, so the title column showed a raw id and
+read like a corrupted one. Ids now render as ids, with the full value on hover.

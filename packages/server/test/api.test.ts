@@ -7,8 +7,37 @@ test("GET /api/sessions returns the rollup", async () => {
   const res = await app.request("/api/sessions");
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(body[0].id, "s-api");
-  assert.equal(body[0].error_turns, 1);
+  assert.equal(body.sessions[0].id, "s-api");
+  assert.equal(body.sessions[0].error_turns, 1);
+  assert.equal(body.total, body.sessions.length);
+});
+
+test("GET /api/sessions pages, searches and filters server-side", async () => {
+  seedSession("s-page-a", { agent: "needle", updated_at: "2026-09-10T00:00:00Z" });
+  seedSession("s-page-b", { agent: "needle", updated_at: "2026-09-11T00:00:00Z", turns: [{ id: "tp1", status: "error" }] });
+  const get = async (qs: string) => (await (await app.request(`/api/sessions?${qs}`)).json()) as any;
+
+  const one = await get("q=needle&limit=1");
+  assert.deepEqual(one.sessions.map((s: any) => s.id), ["s-page-b"], "newest first");
+  assert.equal(one.total, 2, "total counts every match, not the page");
+
+  const failed = await get("q=needle&filter=errors");
+  assert.deepEqual(failed.sessions.map((s: any) => s.id), ["s-page-b"]);
+
+  assert.equal((await get("q=no-such-session")).total, 0);
+  assert.ok((await get("limit=99999")).sessions.length <= 2000, "limit is clamped");
+});
+
+test("GET /api/stats aggregates the whole fleet, not one page", async () => {
+  seedSession("s-stat", {
+    turns: [{ id: "ts1", status: "error" }],
+    events: [{ id: "es1", type: "tool.response", raw: { content: "boom", error: true } }],
+  });
+  const stats = (await (await app.request("/api/stats")).json()) as any;
+  const all = (await (await app.request("/api/sessions?limit=2000")).json()) as any;
+  assert.equal(stats.sessions, all.total);
+  assert.ok(stats.errors >= 1 && stats.toolErrors >= 1);
+  assert.equal(stats.tools, all.sessions.reduce((n: number, s: any) => n + s.tool_calls, 0));
 });
 
 test("GET /api/sessions/:id returns session, turns and parsed events", async () => {
@@ -85,7 +114,7 @@ test("POST /api/ingest accepts normalized sessions, turns and events", async () 
   const post = (b: unknown) => app.request("/api/ingest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
   assert.equal((await post(body)).status, 200);
   assert.equal((await post(body)).status, 200); // idempotent
-  const s = (await (await app.request("/api/sessions")).json()).find((x: any) => x.id === "gk1");
+  const s = (await (await app.request("/api/sessions")).json()).sessions.find((x: any) => x.id === "gk1");
   assert.equal(s.source, "grok");
   assert.equal(s.turn_count, 1);
   assert.equal(s.total_seconds, 9);

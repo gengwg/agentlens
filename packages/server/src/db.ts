@@ -148,8 +148,33 @@ const TOOL_ERROR = `e.type = 'tool.response'
   AND (json_extract(e.raw,'$.error') = 1 OR (s.source = 'trueforge' AND json_extract(e.raw,'$.content') LIKE '{"error"%'))
   AND NOT ${DENIED}`;
 
+// A fleet of a few thousand sessions makes the unfiltered rollup slow and the
+// response large, so the table asks for one page and the server does the
+// matching. `filter` uses EXISTS rather than the computed columns below, which
+// would force the rollup over every session before discarding most of them.
+const MATCH = {
+  errors: `EXISTS (SELECT 1 FROM turns t WHERE t.session_id = s.id AND t.status = 'error')`,
+  toolErrors: `EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND ${TOOL_ERROR})`,
+  approval: `(SELECT t.pending_actions FROM turns t WHERE t.session_id = s.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) > 0`,
+} as const;
+
+export type SessionQuery = { limit?: number; q?: string; filter?: keyof typeof MATCH | null };
+
+function where(opts: SessionQuery) {
+  const parts: string[] = [];
+  if (opts.q) parts.push(`(s.id LIKE @like OR s.agent_name LIKE @like OR s.title LIKE @like OR s.source LIKE @like)`);
+  if (opts.filter && MATCH[opts.filter]) parts.push(MATCH[opts.filter]);
+  return { sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "", like: `%${opts.q ?? ""}%` };
+}
+
+export function sessionCount(opts: SessionQuery = {}) {
+  const w = where(opts);
+  return (db.prepare(`SELECT COUNT(*) n FROM sessions s ${w.sql}`).get({ like: w.like }) as { n: number }).n;
+}
+
 // Per-session rollup: turn counts/status, duration, tokens, tool calls.
-export function sessionSummaries() {
+export function sessionSummaries(opts: SessionQuery = {}) {
+  const w = where(opts);
   return db
     .prepare(
       `
@@ -172,10 +197,26 @@ export function sessionSummaries() {
       (SELECT SUM(json_extract(e.raw,'$.usage.outputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS output_tokens,
       (SELECT SUM(strftime('%s', t.completed_at) - strftime('%s', t.created_at)) FROM turns t WHERE t.session_id = s.id AND t.completed_at IS NOT NULL) AS total_seconds
     FROM sessions s
+    ${w.sql}
     ORDER BY s.updated_at DESC
+    ${opts.limit ? "LIMIT @limit" : ""}
   `,
     )
-    .all() as Record<string, unknown>[];
+    .all({ like: w.like, ...(opts.limit ? { limit: opts.limit } : {}) }) as Record<string, unknown>[];
+}
+
+// The header stats cover the whole fleet, so they are aggregates rather than a
+// sum over the page the table happens to be showing.
+export function fleetTotals() {
+  const one = (sql: string) => (db.prepare(sql).get() as { n: number | null }).n ?? 0;
+  return {
+    sessions: one(`SELECT COUNT(*) n FROM sessions`),
+    errors: one(`SELECT COUNT(DISTINCT session_id) n FROM turns WHERE status = 'error'`),
+    toolErrors: one(`SELECT COUNT(DISTINCT e.session_id) n FROM events e JOIN sessions s ON s.id = e.session_id WHERE ${TOOL_ERROR}`),
+    approvals: one(`SELECT COUNT(*) n FROM sessions s WHERE ${MATCH.approval}`),
+    tools: one(`SELECT COUNT(*) n FROM events WHERE type = 'tool.response'`),
+    tokens: one(`SELECT SUM(json_extract(raw,'$.usage.inputTokens')) + SUM(json_extract(raw,'$.usage.outputTokens')) n FROM events WHERE type = 'model.message'`),
+  };
 }
 
 export function sessionTrace(sessionId: string) {
