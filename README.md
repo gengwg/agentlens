@@ -111,9 +111,10 @@ A session records the git branch it started on, read from `.git/HEAD` in the
 harness's working directory - no subprocess, and it works when git is absent.
 It shows beside the agent name and the filter box matches it, so "what ran on
 `release/2.4`" is a question the table can answer. TrueForge sessions have no
-working directory and so no branch, and a session that outlives a checkout
-keeps the branch it began on, since the logs do not record when a checkout
-happened. It is deliberately **not** a `/metrics` label: branches are unbounded
+working directory and so no branch. It is recorded the first time AgentLens
+sees the session with a working directory and never overwritten, so a session
+that outlives a checkout keeps the branch it was first seen on; the logs do not
+record when a checkout happened, so anything else would be invention. It is deliberately **not** a `/metrics` label: branches are unbounded
 over time and would multiply every series by them.
 
 Secrets are masked before an event is stored. A session records whatever
