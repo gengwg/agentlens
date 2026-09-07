@@ -209,11 +209,16 @@ cost themselves (OpenCode, Roo Code): it is a floor, not a total.
 titles, no tool output. It has no authentication, like the rest of the API, so
 keep the port private.
 
-If you would rather send sessions somewhere else entirely, Grafana's own
-[agento11y](https://github.com/grafana/agento11y) plugins forward Claude Code,
-Cursor, OpenCode and Codex to Grafana Cloud Agent Observability from a launcher
-hook. They capture sessions started after you install them; AgentLens reads the
-logs your harnesses already wrote, so the two answer different questions.
+If you would rather send sessions somewhere else entirely, look at Grafana's
+[agento11y](https://github.com/grafana/agento11y) first. Its plugins forward
+Claude Code, Cursor, OpenCode, Codex, Copilot CLI, Pi and Vibe to Grafana Cloud
+Agent Observability, `agento11y history import` backfills sessions written
+before it was installed, and `--local` keeps everything on the machine. It is a
+maintained product with evaluations and guards, which this is not.
+
+What is left here that it does not do: dsh, Roo Code, Antigravity CLI and
+TrueForge; the trace view with its approval gate; the investigator agent; and a
+server you host yourself, open source end to end.
 
 ## Harness feature map
 
