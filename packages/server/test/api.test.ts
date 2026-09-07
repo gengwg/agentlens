@@ -124,3 +124,19 @@ test("POST /api/ingest accepts normalized sessions, turns and events", async () 
   assert.equal((await post({ source: "bad source!", sessions: [] })).status, 400);
   assert.equal((await post({ source: "ok", events: [{ id: "e", type: "x" }] })).status, 400);
 });
+
+test("GET /api/sessions?sort=score puts the worst first", async () => {
+  seedSession("s-sort-clean", { agent: "clean", updated_at: "2026-09-25T00:00:00Z" });
+  seedSession("s-sort-bad", {
+    agent: "bad",
+    updated_at: "2026-09-24T00:00:00Z",
+    turns: [{ id: "tsb1", status: "error" }],
+  });
+  const ids = async (qs: string) =>
+    ((await (await app.request(`/api/sessions?${qs}&limit=100`)).json()) as any).sessions.map((s: any) => s.id);
+
+  const scored = await ids("sort=score");
+  assert.ok(scored.indexOf("s-sort-bad") < scored.indexOf("s-sort-clean"));
+  const recent = await ids("");
+  assert.ok(recent.indexOf("s-sort-clean") < recent.indexOf("s-sort-bad"), "default order is unchanged");
+});
