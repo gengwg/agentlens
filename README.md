@@ -107,6 +107,18 @@ are not read.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
 (`8791`), `AGENTLENS_HOST` (`127.0.0.1`, see Shared server below).
 
+Secrets are masked before an event is stored. A session records whatever
+crossed it - a key pasted into a prompt, a `printenv`, a `.env` read back by a
+tool - and `agentlens.db` is a file with no authentication in front of it, so a
+token in a transcript is a token at rest. The pattern table is the tier-1 set
+from Grafana's [agento11y](https://github.com/grafana/agento11y) (Apache-2.0,
+patterns from Gitleaks; see [NOTICE](NOTICE)): cloud and provider API keys,
+GitHub and Slack tokens, private-key blocks, connection strings with
+credentials, bearer tokens. Their tier-2 key/value guesses are deliberately
+left out, since `DB_PASSWORD=hunter2` in a transcript is often the thing you
+opened the transcript to find. `AGENTLENS_REDACT=0` turns masking off, and rows
+written before this existed are not rewritten.
+
 Claude Code and dsh transcripts are tailed with per-file cursors (subagent
 transcripts become threads); OpenCode is polled read-only from its SQLite
 database (child sessions become threads); Gemini and Roo files are re-read when

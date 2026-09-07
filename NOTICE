@@ -1,0 +1,13 @@
+AgentLens
+Copyright (c) 2026 Weigang Geng
+
+This product includes software developed at Grafana Labs.
+
+packages/server/src/redact-secrets.ts contains the tier-1 secret-pattern table
+from Grafana agento11y (https://github.com/grafana/agento11y), licensed under
+the Apache License, Version 2.0. Those patterns are in turn hand-curated from
+Gitleaks (https://github.com/gitleaks/gitleaks), licensed under the MIT License.
+
+packages/server/test/fixtures/agento11y-light.json contains the light-mode test
+cases from the same project, under the same licence, used to verify that the
+ported patterns behave identically.
