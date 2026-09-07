@@ -590,3 +590,32 @@ titles are session ids of about eighteen monospace characters.
 Measured on the real shared fleet in worst-first: the table is 1042px in a
 1042px card, Updated fully visible, and two titles out of two hundred clip -
 both local sessions with real prose, which keep their tooltip.
+
+## 2026-09-07 - An outside review, and where it was right
+
+An external review of the tree. Its headline finding was correct and is the
+kind of gap worth having someone else find: masking covered `events.raw` and
+nothing else. A session title is the first eighty characters of the first
+prompt, and a turn error is model or tool text, and both were written to their
+own columns in clear. The sharpest illustration was OpenCode, where the same
+error string went through `putEvent` masked and into `turns.error` in the
+clear, in the same function.
+
+Masking now covers both columns, through `maskText` at every writer: session
+titles from six adapters, turn errors from `closeTurn`, `failTurn` and
+OpenCode's own state update. `agent_name` is left alone deliberately - it is a
+directory basename, and masking it would only mangle repository names.
+
+Also fixed from the same review: the problem score divided two integers, so
+fourteen tool calls over three turns scored as four rather than 4.67; the fleet
+table's "show more" kept offering more past the server's 2000-row cap, which
+3,179 sessions on the shared server made reachable; a port already in use
+crashed with a stack trace instead of naming the port; and the README still
+claimed the shared server was "not built yet" several sections after describing
+how to run one.
+
+Two findings did not survive checking. The claim that the `seq` backfill scans
+the whole table on startup is wrong - `EXPLAIN QUERY PLAN` shows
+`SEARCH events USING INDEX idx_events_seq`, because the index is created before
+the backfill runs. And the uncommitted layout change it flagged was committed
+before the review was read.

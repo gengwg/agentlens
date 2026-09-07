@@ -60,6 +60,11 @@ export function redactSecrets(text: string): string {
 // with no quotes or backslashes, so masking the serialized form cannot break
 // the JSON. Doing it here rather than per field covers prompts, model output,
 // tool arguments and tool results in one pass.
+// For the text columns outside events.raw: session titles and turn errors.
+export function maskText<T extends string | null | undefined>(text: T): T {
+  return (text && redactionEnabled() ? (redactSecrets(text) as T) : text);
+}
+
 export function redactEventRaw(raw: string): string {
   return redactionEnabled() ? redactSecrets(raw) : raw;
 }

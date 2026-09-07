@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { db, insertEvent, seedSession, sessionTrace, upsertEvent } from "./fixtures.ts";
 
 const { redactSecrets } = await import("../src/redact-secrets.ts");
+const { upsertSession, upsertTurn } = await import("../src/db.ts");
 
 // Fake credentials are assembled at runtime rather than written out. They are
 // invented, but they match real formats by design, and a literal in the source
@@ -99,4 +100,38 @@ test("a private key block is masked whole", () => {
   const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234\nabcd\n-----END RSA PRIVATE KEY-----";
   const out = redactSecrets(`here it is:\n${pem}\nthat was it`);
   assert.equal(out, "here it is:\n[REDACTED:private-key]\nthat was it");
+});
+
+test("a secret in a session title is masked", () => {
+  // A first prompt that opens with a key becomes the session title.
+  upsertSession.run({
+    id: "r-title2",
+    agent_name: "repo",
+    title: `use ${fake.githubPat} to fetch it`,
+    created_at: "2026-09-01T00:00:00Z",
+    updated_at: "2026-09-01T00:00:00Z",
+    created_by: "test",
+    source: "claude-code",
+  });
+  const t = db.prepare(`SELECT title FROM sessions WHERE id = ?`).get("r-title2") as { title: string };
+  assert.ok(!t.title.includes(fake.githubPat), "the token is not stored in the title");
+  assert.ok(t.title.includes("[REDACTED:github-pat]") && t.title.includes("to fetch it"));
+});
+
+test("a turn error carrying a key is masked", () => {
+  seedSession("r-err");
+  upsertTurn.run({
+    id: "r-err-t1",
+    session_id: "r-err",
+    created_at: "2026-09-01T00:00:00Z",
+    completed_at: "2026-09-01T00:01:00Z",
+    status: "error",
+    error: `auth failed for ${fake.openaiProject}`,
+    ingested: 1,
+    pending_actions: 0,
+  });
+  const row = db.prepare(`SELECT error FROM turns WHERE id = ?`).get("r-err-t1") as { error: string };
+  assert.ok(!row.error.includes(fake.openaiProject));
+  assert.ok(row.error.includes("[REDACTED:openai-project-key]"));
+  assert.ok(row.error.startsWith("auth failed for"), "the rest of the message survives");
 });

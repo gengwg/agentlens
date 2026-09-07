@@ -1,5 +1,6 @@
 import { userInfo } from "node:os";
 import { db, upsertEvent, upsertSession } from "../db.js";
+import { maskText } from "../redact-secrets.js";
 
 // Small write helpers shared by adapters that produce the normalized
 // vocabulary directly (dsh, codex, gemini, roo, the ingest API).
@@ -33,7 +34,7 @@ export function ensureSession(s: {
   branch?: string | null;
 }) {
   if (sessionExists.get(s.id)) {
-    if (s.title) setTitle.run(s.title, s.id);
+    if (s.title) setTitle.run(maskText(s.title), s.id);
     // A branch handed over by a shipper belongs to that session and fills a
     // gap on a row that arrived before branches were sent. A branch derived
     // from a local working directory is not backfilled here: on an old session
@@ -57,7 +58,7 @@ export function ensureSession(s: {
 export const touch = (sessionId: string, at: string) => touchStmt.run(at, sessionId, at);
 export const openTurn = (id: string, sessionId: string, at: string) => openTurnStmt.run(id, sessionId, at);
 export const closeTurn = (id: string, status: string, at: string | null, error: string | null = null) =>
-  closeTurnStmt.run(status, at, error, id);
+  closeTurnStmt.run(status, at, maskText(error), id);
 // Harnesses without a terminal marker: a new prompt ends whatever was running.
 export const closeOpenTurns = (sessionId: string, before: string) => closeOpenTurnsStmt.run(sessionId, before);
 

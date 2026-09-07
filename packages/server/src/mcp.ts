@@ -141,6 +141,15 @@ export function startMcpServer(port = 8791) {
   });
   // Loopback only: the MCP tools have no auth, so binding to all interfaces
   // would expose session traces and the report-write tool to the LAN.
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    // Usually a second AgentLens on the same machine. Say which port, and stop.
+    console.error(
+      err.code === "EADDRINUSE"
+        ? `mcp port ${port} is already in use; set MCP_PORT to something else`
+        : `mcp: ${err.message}`,
+    );
+    process.exit(1);
+  });
   server.listen(port, "127.0.0.1", () =>
     console.log(`agentlens mcp on http://localhost:${port}/mcp`),
   );

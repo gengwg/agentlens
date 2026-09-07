@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import { db, getCursor, insertEvent, setCursor, turnAt, upsertEvent, upsertSession } from "../db.js";
 import { usageOf } from "./emit.js";
 import type { Source } from "./types.js";
+import { maskText } from "../redact-secrets.js";
 
 // OpenCode keeps its state in SQLite (session / message / part tables, JSON in
 // `data`). Rows are updated in place while a step runs, so events are upserted
@@ -161,7 +162,7 @@ export function createOpenCode(src: Database): Source {
     }
     if (status === "running") return;
     const completed = iso(Math.max(...replies.map((r) => r.time?.completed ?? r.time?.created ?? 0)));
-    setTurnState.run(status, completed, message, `oc:${userMsgId}`);
+    setTurnState.run(status, completed, maskText(message), `oc:${userMsgId}`);
     const cost = replies.reduce((n, r) => n + (r.cost ?? 0), 0);
     insertEvent.run({
       id: `oc:${userMsgId}:done`,

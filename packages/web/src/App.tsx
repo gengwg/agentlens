@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type FleetTotals, type Report, type SessionSummary, type SourceStatus, type Trace, type TraceEvent } from "./api";
 
 const PAGE = 200;
+// The server clamps a page to this, so asking for more silently does nothing.
+const MAX_ROWS = 2000;
 
 const fmtTokens = (n: number | null | undefined) =>
   n == null
@@ -199,9 +201,10 @@ export function App() {
             q={q}
             setQ={setQ}
             matched={matched}
+            atCap={limit >= MAX_ROWS}
             sort={sort}
             setSort={setSort}
-            onMore={() => setLimit((n) => n + PAGE)}
+            onMore={() => setLimit((n) => Math.min(n + PAGE, MAX_ROWS))}
           />
           <ReportPanel reports={reports} />
         </main>
@@ -250,6 +253,7 @@ function SessionTable({
   q,
   setQ,
   matched,
+  atCap,
   sort,
   setSort,
   onMore,
@@ -259,6 +263,7 @@ function SessionTable({
   q: string;
   setQ: (q: string) => void;
   matched: number;
+  atCap: boolean;
   sort: "recent" | "score";
   setSort: (s: "recent" | "score") => void;
   onMore: () => void;
@@ -378,11 +383,16 @@ function SessionTable({
           )}
         </tbody>
       </table>
-      {matched > rows.length && (
-        <button className="more" onClick={onMore}>
-          show {Math.min(PAGE, matched - rows.length)} more
-        </button>
-      )}
+      {matched > rows.length &&
+        (atCap ? (
+          <div className="more muted">
+            showing the first {rows.length} of {matched}; narrow the filter to see the rest
+          </div>
+        ) : (
+          <button className="more" onClick={onMore}>
+            show {Math.min(PAGE, matched - rows.length)} more
+          </button>
+        ))}
     </section>
   );
 }
