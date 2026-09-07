@@ -121,3 +121,21 @@ test("every series belongs to a declared family", () => {
     assert.ok(families.has(name) || families.has(base), `${name} has no # TYPE line`);
   }
 });
+
+test("cache reads and writes are their own token kinds", () => {
+  seedSession("m-cache", {
+    source: "opencode",
+    agent: "pricing",
+    events: [
+      { id: "mk1", type: "model.message", raw: { model: "claude-opus-5", usage: { inputTokens: 120, outputTokens: 40, cacheReadTokens: 90_000, cacheWriteTokens: 300 } } },
+      // A row from before the split carries no cache fields, and must not invent any.
+      { id: "mk2", type: "model.message", raw: { model: "claude-haiku-4-5", usage: { inputTokens: 50, outputTokens: 5 } } },
+    ],
+  });
+  const { series } = scrape();
+  const l = 'source="opencode",agent="pricing"';
+  assert.equal(series.get(`agentlens_tokens_total{${l},model="claude-opus-5",kind="input"}`), 120);
+  assert.equal(series.get(`agentlens_tokens_total{${l},model="claude-opus-5",kind="cache_read"}`), 90_000);
+  assert.equal(series.get(`agentlens_tokens_total{${l},model="claude-opus-5",kind="cache_write"}`), 300);
+  assert.equal(series.get(`agentlens_tokens_total{${l},model="claude-haiku-4-5",kind="cache_read"}`), undefined);
+});

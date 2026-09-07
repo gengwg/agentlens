@@ -72,6 +72,25 @@ export function putEvent(e: {
 }
 
 export const iso = (ms: number | string | Date) => new Date(ms).toISOString();
+
+// Cache reads cost a fraction of fresh input and cache writes cost more, so the
+// three are kept apart instead of summed into one number; folding them together
+// makes cost impossible to work out later. A total is input + output + cache.
+// Rows written before this split folded cache into inputTokens, so that total
+// stays continuous across the change.
+export type Usage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+};
+
+export const usageOf = (u: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }): Usage => {
+  const out: Usage = { inputTokens: u.input ?? 0, outputTokens: u.output ?? 0 };
+  if (u.cacheRead) out.cacheReadTokens = u.cacheRead;
+  if (u.cacheWrite) out.cacheWriteTokens = u.cacheWrite;
+  return out;
+};
 // Flatten message content (string, or an array of blocks) to display text.
 // Images become a placeholder; thinking/reasoning blocks are dropped.
 export const textOf = (content: unknown): string => {

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { db, getCursor, setCursor } from "../db.js";
-import { MAX_TOOL_OUTPUT, closeTurn, ensureSession, openTurn, putEvent, textOf, touch } from "./emit.js";
+import { MAX_TOOL_OUTPUT, closeTurn, ensureSession, openTurn, putEvent, textOf, touch, usageOf } from "./emit.js";
 import type { Source } from "./types.js";
 
 // Experimental: Gemini CLI chats under ~/.gemini/tmp/<project>/chats/.
@@ -49,7 +49,7 @@ export function ingestSession(doc: any, projectName: string) {
       raw: {
         content: textOf(m.content),
         toolCalls: calls.map((c) => ({ id: c.id, function: { name: c.name, arguments: JSON.stringify(c.args ?? {}) } })),
-        usage: m.tokens ? { inputTokens: (m.tokens.input ?? 0) + (m.tokens.cached ?? 0), outputTokens: (m.tokens.output ?? 0) + (m.tokens.thoughts ?? 0) } : undefined,
+        usage: m.tokens ? usageOf({ input: m.tokens.input, output: (m.tokens.output ?? 0) + (m.tokens.thoughts ?? 0), cacheRead: m.tokens.cached }) : undefined,
         model: m.model,
       } });
     for (const c of calls) {
