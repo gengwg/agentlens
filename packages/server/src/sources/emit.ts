@@ -29,6 +29,7 @@ export function ensureSession(s: {
   created_at: string;
   updated_at?: string;
   cwd?: string | null;
+  branch?: string | null;
 }) {
   if (sessionExists.get(s.id)) {
     if (s.title) setTitle.run(s.title, s.id);
@@ -43,6 +44,7 @@ export function ensureSession(s: {
     created_by: userInfo().username,
     source: s.source,
     cwd: s.cwd,
+    branch: s.branch,
   });
 }
 

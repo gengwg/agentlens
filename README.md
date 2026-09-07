@@ -189,7 +189,9 @@ names the badge on the shared fleet, `shipped` by default.
 
 On the shared view the Agent column reads `machine/project` and the Title
 column shows a session id, because titles are first-prompt text and stay
-local; `AGENTLENS_SHIP_TITLES=1` opts in. A shared trace has the full shape,
+local; `AGENTLENS_SHIP_TITLES=1` opts in. Branch names do travel, so the fleet
+can answer what ran on `release/2.4`; `AGENTLENS_SHIP_BRANCH=0` holds them back
+if a branch name says more about your work than you want shared. A shared trace has the full shape,
 turns, tool calls by name, token counts and timings, with empty message bodies.
 
 There is no authentication: anyone who can reach the port sees every shipped

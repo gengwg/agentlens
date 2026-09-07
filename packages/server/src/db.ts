@@ -99,7 +99,10 @@ export const upsertSession = {
     created_by: string;
     source: string;
     cwd?: string | null;
-  }) => upsertSessionStmt.run({ ...s, cwd: undefined, branch: branchOf(s.cwd) }),
+    // A shipped session carries the sender's branch; there is no working
+    // directory to read on the receiving machine.
+    branch?: string | null;
+  }) => upsertSessionStmt.run({ ...s, cwd: undefined, branch: s.branch ?? branchOf(s.cwd) }),
 };
 
 export const sessionSource = db.prepare(`SELECT source FROM sessions WHERE id = ?`);

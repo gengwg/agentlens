@@ -140,3 +140,21 @@ test("GET /api/sessions?sort=score puts the worst first", async () => {
   const recent = await ids("");
   assert.ok(recent.indexOf("s-sort-clean") < recent.indexOf("s-sort-bad"), "default order is unchanged");
 });
+
+test("POST /api/ingest stores a shipped branch, bounded in length", async () => {
+  const post = (b: unknown) =>
+    app.request("/api/ingest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+  await post({
+    source: "shipped",
+    sessions: [
+      { id: "br1", agent_name: "box/repo", branch: "feat/wide", created_at: "2026-09-01T00:00:00Z" },
+      { id: "br2", agent_name: "box/repo", branch: "x".repeat(500), created_at: "2026-09-01T00:00:00Z" },
+      { id: "br3", agent_name: "box/repo", branch: 42, created_at: "2026-09-01T00:00:00Z" },
+    ],
+  });
+  const rows = (await (await app.request("/api/sessions?q=box/repo&limit=10")).json()) as any;
+  const by = Object.fromEntries(rows.sessions.map((s: any) => [s.id, s.branch]));
+  assert.equal(by.br1, "feat/wide");
+  assert.equal(by.br2.length, 200, "a long branch is truncated rather than stored whole");
+  assert.equal(by.br3, null, "a non-string branch is ignored");
+});
