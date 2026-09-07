@@ -574,3 +574,19 @@ keeps its width and the branch gives way first if anything has to. Checked
 against the real shared fleet at the browser's own width: nothing clipped, and
 the table still fits with no horizontal scroll, which was the constraint that
 made this column narrow in the first place.
+
+## 2026-09-07 - Worst-first pushed the table off its own edge
+
+Sorting by problem score put the heaviest sessions on screen at once, and the
+Updated column went off the right edge of the card. The widths had only ever
+been checked against the recency view, where every row is a one-turn cron job.
+
+Two fixes, both of which the fleet needed anyway. Durations over an hour now
+read `66h 26m` rather than `3985m 54s`, which is narrower and, more to the
+point, legible - nobody can read 3985 minutes. And the title column, sized at
+240px back when titles were prompt text, is 170px now that a shared fleet's
+titles are session ids of about eighteen monospace characters.
+
+Measured on the real shared fleet in worst-first: the table is 1042px in a
+1042px card, Updated fully visible, and two titles out of two hundred clip -
+both local sessions with real prose, which keep their tooltip.
