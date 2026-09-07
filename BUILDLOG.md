@@ -378,3 +378,27 @@ Antigravity CLI, TrueForge), the trace view and its approval gate, the
 investigator agent, and being self-hostable and open end to end. That is a
 narrower claim than the one this log made this morning, and the recommendation
 for a team of four is now plainly their tool, not this one.
+
+## 2026-09-07 - Cache tokens were being thrown away
+
+Grafana's local viewer shows per-session cost for Claude Code and a 96% input
+cache-hit rate. I had said the day before that a price table here would be
+"confident nonsense" because adapters fold cache reads into input tokens - true
+of the adapters, not of the logs. Claude Code reports `input_tokens`,
+`cache_creation_input_tokens` and `cache_read_input_tokens` separately, and
+`claude-code.ts` was adding all three into one number and discarding the split.
+Five adapters did the same thing with their own field names.
+
+Fixed with one helper, `usageOf` in emit.ts, so an event now carries
+`inputTokens`, `outputTokens`, `cacheReadTokens` and `cacheWriteTokens`. Cache
+reads cost a fraction of fresh input and cache writes cost more, so this is the
+prerequisite for computing cost at all.
+
+The rollups needed care to avoid a discontinuity: rows written before today fold
+cache into `inputTokens`, so "tokens in" is now the sum of input, cache read and
+cache write. Old rows and new ones therefore report the same total, which a test
+pins. /metrics gained `kind="cache_read"` and `kind="cache_write"`.
+
+On real logs the split is stark: 87 newly written events carried 244,047 fresh
+input tokens against 1,054,044 cache reads, so 81% of that traffic was cache and
+would have been priced as if it were full-rate input.

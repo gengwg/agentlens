@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { db, getCursor, setCursor } from "../db.js";
-import { MAX_TOOL_OUTPUT, closeTurn, ensureSession, openTurn, putEvent, textOf, touch } from "./emit.js";
+import { MAX_TOOL_OUTPUT, closeTurn, ensureSession, openTurn, putEvent, textOf, touch, usageOf } from "./emit.js";
 import type { Source } from "./types.js";
 
 // Roo Code and Cline (VS Code extensions). Each task lives in
@@ -85,7 +85,7 @@ export function ingestTask(source: string, taskId: string, api: ApiMsg[], ui: Ui
       raw: {
         content: xml ? text.slice(0, text.indexOf(`<${xml[1]}>`)).trim() : text,
         toolCalls: xml ? [{ id: `xml-${n}`, function: { name: xml[1], arguments: text.slice(text.indexOf(`<${xml[1]}>`)).slice(0, 400) } }] : toolCalls,
-        usage: u ? { inputTokens: (u.tokensIn ?? 0) + (u.cacheReads ?? 0) + (u.cacheWrites ?? 0), outputTokens: u.tokensOut ?? 0 } : undefined,
+        usage: u ? usageOf({ input: u.tokensIn, output: u.tokensOut, cacheRead: u.cacheReads, cacheWrite: u.cacheWrites }) : undefined,
         cost: u?.cost,
       } });
     last = { time, calling: toolCalls.length > 0 || !!xml };
