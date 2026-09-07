@@ -511,3 +511,24 @@ A pleasing detail: the first push was rejected by GitHub's own secret scanning,
 because the borrowed fixtures carry realistic example keys. That is exactly the
 right behaviour from it, so the corpus is stored base64 and decoded by the test
 rather than allowlisted.
+
+## 2026-09-07 - Which branch was the agent on
+
+Sessions now record a branch, read from `.git/HEAD` in the working directory the
+harness already reports. A file read, not a `git` subprocess, so there is no
+process per session and it still works where git is not installed. The walk goes
+up from the working directory, because an agent is usually started somewhere
+below the repository root, and a `.git` that turns out to be a file is followed
+to the real gitdir, which is how worktrees and submodules look.
+
+Recorded once, when the session row is created, and never overwritten. A session
+that outlives a checkout keeps the branch it began on; the logs do not say when
+a checkout happened, so anything else would be invention. On a fresh ingest of
+the local logs, 146 of 196 sessions got one - the rest are TrueForge, which has
+no working directory, and directories that are no longer repositories.
+
+Deliberately not a Prometheus label, against the plan. Branch is the classic
+unbounded dimension: this fleet has four today, but a team on ticket branches
+would produce hundreds over a year, multiplied by every agent. It lives in the
+table and the filter instead, which is where "what ran on release/2.4" is
+actually asked.

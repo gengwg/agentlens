@@ -24,7 +24,7 @@ export function ingestSteps(sessionId: string, steps: any[], state: FileState, w
     if (at) last = at;
     if (s.type === "USER_INPUT") {
       const text = textOf(s.content);
-      ensureSession({ id: sessionId, source: SOURCE, agent_name: workspace ? basename(workspace) : SOURCE, title: text.slice(0, 80), created_at: at ?? new Date().toISOString() });
+      ensureSession({ id: sessionId, source: SOURCE, cwd: workspace, agent_name: workspace ? basename(workspace) : SOURCE, title: text.slice(0, 80), created_at: at ?? new Date().toISOString() });
       if (state.turn_id) closeTurn(state.turn_id, "done", null);
       state.turn_id = eid(`t${s.step_index}`);
       openTurn(state.turn_id, sessionId, at!);

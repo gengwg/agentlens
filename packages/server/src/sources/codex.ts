@@ -20,7 +20,7 @@ export function ingestRecords(fileId: string, records: any[], state: FileState) 
     const p = r.payload ?? {};
     if (r.type === "session_meta") {
       const id = (state.session_id = String(p.id ?? fileId));
-      ensureSession({ id, source: SOURCE, agent_name: p.cwd ? basename(p.cwd) : SOURCE, created_at: p.timestamp ?? at ?? new Date().toISOString() });
+      ensureSession({ id, source: SOURCE, cwd: p.cwd, agent_name: p.cwd ? basename(p.cwd) : SOURCE, created_at: p.timestamp ?? at ?? new Date().toISOString() });
       continue;
     }
     const sid = (state.session_id ??= fileId);
