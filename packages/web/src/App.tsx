@@ -329,8 +329,8 @@ function SessionTable({
                     working directory. Searchable, so "on which branch" is a
                     question the filter box can answer. */}
                 <div className="agent" title={s.branch ? `${s.agent_name} on ${s.branch}` : s.agent_name}>
-                  {s.agent_name}
-                  {s.branch && <span className="branch"> {s.branch}</span>}
+                  <span className="repo">{s.agent_name}</span>
+                  {s.branch && <span className="branch">{s.branch}</span>}
                 </div>
               </td>
               <td className="dim">

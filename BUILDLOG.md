@@ -562,3 +562,15 @@ Only an explicit branch from a shipper backfills. A branch derived from a local
 working directory still lands once, when the session is first seen, because
 filling it in later would stamp today's checkout onto work done on another
 branch. That distinction is now a comment next to the code that makes it.
+
+## 2026-09-07 - The branch arrived and did not fit
+
+Branches reached the shared server and rendered as "deve…". The agent cell was
+capped at 170px from when it held only a repository name, and the branch
+appended to it had nowhere to go.
+
+The cell is now a flex row of two spans with a 300px cap, so the repository
+keeps its width and the branch gives way first if anything has to. Checked
+against the real shared fleet at the browser's own width: nothing clipped, and
+the table still fits with no horizontal scroll, which was the constraint that
+made this column narrow in the first place.
