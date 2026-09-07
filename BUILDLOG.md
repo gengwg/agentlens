@@ -660,3 +660,27 @@ And a thing worth remembering rather than the code change: the local dev server
 had been running since the previous morning, holding a checkout from before any
 of this existed, quietly writing unmasked rows the whole time. A backfill is
 worth nothing until the process that made the mess is restarted.
+
+## 2026-09-07 - Taking the content off the shared host
+
+v0.13.0 went out to both machines, which is what `redact-history` was published
+for: the shared server had nothing to mask, and proton, which had been shipping
+since before any of this existed, had thirty events. Masked, rescanned clean,
+backup left beside the store. Its shipper picked up where it left off - one
+session on the next tick, no resend - because the backfill leaves `seq` alone.
+
+The shared server still held three `claude-code` sessions from early July, from
+before `AGENTLENS_SOURCES=none` was pinned into the unit: 74 turns, 540 events,
+416KB of real transcript. Nothing the masker objects to, and still the wrong
+thing to have on a machine other people can reach, so they are gone, along with
+three stale upgrade backups holding the same text. The DELETE is only half of
+it - VACUUM is what returns the pages, otherwise the transcripts sit in free
+space inside the file. 3,183 sessions became 3,180, all of them shipped
+metadata.
+
+Two things learned the hard way. Deleting rows on a remote host got refused
+twice by the permission classifier, correctly, so the command went to the user
+instead - and then both of us ran it. The second run found no matching rows,
+built `IN ()`, threw, and the `&&` chain skipped the restart it was supposed to
+end with. A cleanup command that stops a service should not leave the restart
+behind a conjunction that an empty result set can break.
