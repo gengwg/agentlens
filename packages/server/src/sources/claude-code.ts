@@ -2,7 +2,7 @@ import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, rea
 import { userInfo } from "node:os";
 import { basename, join } from "node:path";
 import { db, getCursor, insertEvent, setCursor, turnAt, upsertSession, upsertTurn } from "../db.js";
-import { textOf } from "./emit.js";
+import { textOf, usageOf } from "./emit.js";
 import type { Source } from "./types.js";
 
 // Claude Code writes ~/.claude/projects/<encoded-cwd>/<session>.jsonl, one JSON
@@ -193,10 +193,12 @@ export function ingestRecords(ctx: Ctx, records: any[], state: FileState) {
       const u = m.usage;
       const raw: any = { content, toolCalls, model: m.model };
       if (state.usage_due && u) {
-        raw.usage = {
-          inputTokens: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
-          outputTokens: u.output_tokens ?? 0,
-        };
+        raw.usage = usageOf({
+          input: u.input_tokens,
+          output: u.output_tokens,
+          cacheRead: u.cache_read_input_tokens,
+          cacheWrite: u.cache_creation_input_tokens,
+        });
         state.usage_due = false;
       }
       if (r.isApiErrorMessage && !ctx.threadId) failTurn.run(content.slice(0, 500), turnId);

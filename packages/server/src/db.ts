@@ -172,6 +172,13 @@ export function sessionCount(opts: SessionQuery = {}) {
   return (db.prepare(`SELECT COUNT(*) n FROM sessions s ${w.sql}`).get({ like: w.like }) as { n: number }).n;
 }
 
+// Tokens that went in, however the adapter reported them: rows written before
+// cache was split out folded it into inputTokens, so summing all three keeps
+// the number continuous across that change.
+const TOKENS_IN = `COALESCE(json_extract(e.raw,'$.usage.inputTokens'),0)
+  + COALESCE(json_extract(e.raw,'$.usage.cacheReadTokens'),0)
+  + COALESCE(json_extract(e.raw,'$.usage.cacheWriteTokens'),0)`;
+
 // Per-session rollup: turn counts/status, duration, tokens, tool calls.
 export function sessionSummaries(opts: SessionQuery = {}) {
   const w = where(opts);
@@ -193,7 +200,7 @@ export function sessionSummaries(opts: SessionQuery = {}) {
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND ${TOOL_ERROR}) AS tool_errors,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response' AND ${DENIED}) AS tool_denials,
       (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'thread.created') AS subagents,
-      (SELECT SUM(json_extract(e.raw,'$.usage.inputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS input_tokens,
+      (SELECT SUM(${TOKENS_IN}) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS input_tokens,
       (SELECT SUM(json_extract(e.raw,'$.usage.outputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS output_tokens,
       (SELECT SUM(strftime('%s', t.completed_at) - strftime('%s', t.created_at)) FROM turns t WHERE t.session_id = s.id AND t.completed_at IS NOT NULL) AS total_seconds
     FROM sessions s
@@ -215,7 +222,8 @@ export function fleetTotals() {
     toolErrors: one(`SELECT COUNT(DISTINCT e.session_id) n FROM events e JOIN sessions s ON s.id = e.session_id WHERE ${TOOL_ERROR}`),
     approvals: one(`SELECT COUNT(*) n FROM sessions s WHERE ${MATCH.approval}`),
     tools: one(`SELECT COUNT(*) n FROM events WHERE type = 'tool.response'`),
-    tokens: one(`SELECT SUM(json_extract(raw,'$.usage.inputTokens')) + SUM(json_extract(raw,'$.usage.outputTokens')) n FROM events WHERE type = 'model.message'`),
+    tokens: one(`SELECT SUM(${TOKENS_IN}) + SUM(COALESCE(json_extract(e.raw,'$.usage.outputTokens'),0)) n
+      FROM events e WHERE e.type = 'model.message'`),
   };
 }
 
@@ -238,11 +246,15 @@ export function fleetMetrics() {
         SUM(CASE WHEN ${DENIED} THEN 1 ELSE 0 END) denied
       FROM events e JOIN sessions s ON s.id = e.session_id
       WHERE e.type = 'tool.response' GROUP BY s.source, agent`),
-    tokens: rows<{ source: string; agent: string; model: string; input: number; output: number }>(`
+    // Split out for Grafana, since cache reads are most of the volume and a
+    // fraction of the price.
+    tokens: rows<{ source: string; agent: string; model: string; input: number; output: number; cache_read: number; cache_write: number }>(`
       SELECT s.source, COALESCE(s.agent_name,'?') agent,
         COALESCE(json_extract(e.raw,'$.model'),'unknown') model,
         COALESCE(SUM(json_extract(e.raw,'$.usage.inputTokens')), 0) input,
-        COALESCE(SUM(json_extract(e.raw,'$.usage.outputTokens')), 0) output
+        COALESCE(SUM(json_extract(e.raw,'$.usage.outputTokens')), 0) output,
+        COALESCE(SUM(json_extract(e.raw,'$.usage.cacheReadTokens')), 0) cache_read,
+        COALESCE(SUM(json_extract(e.raw,'$.usage.cacheWriteTokens')), 0) cache_write
       FROM events e JOIN sessions s ON s.id = e.session_id
       WHERE e.type = 'model.message' GROUP BY s.source, agent, model`),
     // OpenCode reports cost twice, per message and again summed on turn.done, so

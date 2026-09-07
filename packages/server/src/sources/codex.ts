@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { db, getCursor, setCursor, upsertEvent } from "../db.js";
 import { readNewLines } from "./claude-code.js";
-import { MAX_TOOL_OUTPUT, closeOpenTurns, closeTurn, ensureSession, openTurn, putEvent, textOf, touch } from "./emit.js";
+import { MAX_TOOL_OUTPUT, closeOpenTurns, closeTurn, ensureSession, openTurn, putEvent, textOf, touch, usageOf } from "./emit.js";
 import type { Source } from "./types.js";
 
 // Experimental: OpenAI Codex CLI rollouts, ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl.
@@ -58,7 +58,7 @@ export function ingestRecords(fileId: string, records: any[], state: FileState) 
         const row = db.prepare(`SELECT raw FROM events WHERE id = ?`).get(state.last_model) as { raw: string } | undefined;
         if (row) {
           const raw = JSON.parse(row.raw);
-          raw.usage = { inputTokens: (u.input_tokens ?? 0) + (u.cached_input_tokens ?? 0), outputTokens: (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0) };
+          raw.usage = usageOf({ input: u.input_tokens, output: (u.output_tokens ?? 0) + (u.reasoning_output_tokens ?? 0), cacheRead: u.cached_input_tokens });
           upsertEvent.run({ id: state.last_model, session_id: sid, turn_id: state.turn_id, thread_id: null, type: "model.message", created_at: at, raw: JSON.stringify(raw) });
         }
       } else if (p.type === "task_complete" || p.type === "turn_aborted") {

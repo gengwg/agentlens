@@ -43,7 +43,9 @@ test("claude-code: maps a transcript into turns and events", () => {
   assert.equal(s.turn_count, 2);
   assert.equal(s.tool_calls, 1);
   assert.equal(s.tool_errors, 1);
-  // usage repeated on 3 records of msg1 counts once: (10+90) + (10+90)
+  // usage repeated on 3 records of msg1 counts once: (10+90) + (10+90).
+  // The rollup still counts cache as tokens that went in, so this number means
+  // the same as it did before the split.
   assert.equal(s.input_tokens, 200);
   assert.equal(s.output_tokens, 10);
   assert.equal(s.running, 1);
@@ -61,7 +63,12 @@ test("claude-code: maps a transcript into turns and events", () => {
   assert.equal(call.raw.usage, undefined);
   // thinking-only record a1 is skipped; its usage rides on the first rendered record
   assert.equal(t.events.find((e) => e.id === "cc:cc-s1:a1"), undefined);
-  assert.equal(t.events.find((e) => e.id === "cc:cc-s1:a2")!.raw.usage.inputTokens, 100);
+  // Cache reads stay separate from fresh input, so cost can be worked out later.
+  assert.deepEqual(t.events.find((e) => e.id === "cc:cc-s1:a2")!.raw.usage, {
+    inputTokens: 10,
+    outputTokens: 5,
+    cacheReadTokens: 90,
+  });
   assert.equal(t.events.find((e) => e.type === "turn.done")!.raw.state.durationMs, 7000);
 
   // Replaying the same records is a no-op.

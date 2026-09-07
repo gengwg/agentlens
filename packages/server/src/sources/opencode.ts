@@ -2,6 +2,7 @@ import type { Database } from "better-sqlite3";
 import { userInfo } from "node:os";
 import { basename } from "node:path";
 import { db, getCursor, insertEvent, setCursor, turnAt, upsertEvent, upsertSession } from "../db.js";
+import { usageOf } from "./emit.js";
 import type { Source } from "./types.js";
 
 // OpenCode keeps its state in SQLite (session / message / part tables, JSON in
@@ -111,10 +112,12 @@ export function createOpenCode(src: Database): Source {
           id: p.data.callID,
           function: { name: p.data.tool, arguments: JSON.stringify(p.data.state?.input ?? {}) },
         })),
-        usage: {
-          inputTokens: (tk.input ?? 0) + (tk.cache?.read ?? 0) + (tk.cache?.write ?? 0),
-          outputTokens: (tk.output ?? 0) + (tk.reasoning ?? 0),
-        },
+        usage: usageOf({
+          input: tk.input,
+          output: (tk.output ?? 0) + (tk.reasoning ?? 0),
+          cacheRead: tk.cache?.read,
+          cacheWrite: tk.cache?.write,
+        }),
         model: data.modelID,
         cost: data.cost,
       }),

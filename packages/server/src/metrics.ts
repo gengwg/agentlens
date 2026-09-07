@@ -57,11 +57,15 @@ export function renderMetrics(): string {
   }
   out.push(block("agentlens_tool_calls_total", "Tool responses by outcome.", "counter", tools));
 
+  // Cache reads dominate the volume and cost a fraction of fresh input, so they
+  // are their own kind rather than folded into "input".
   const tokens: Line[] = [];
   for (const r of m.tokens) {
     const base = { source: r.source, agent: r.agent, model: r.model };
     tokens.push({ name: "agentlens_tokens_total", labels: { ...base, kind: "input" }, value: r.input });
     tokens.push({ name: "agentlens_tokens_total", labels: { ...base, kind: "output" }, value: r.output });
+    if (r.cache_read) tokens.push({ name: "agentlens_tokens_total", labels: { ...base, kind: "cache_read" }, value: r.cache_read });
+    if (r.cache_write) tokens.push({ name: "agentlens_tokens_total", labels: { ...base, kind: "cache_write" }, value: r.cache_write });
   }
   out.push(block("agentlens_tokens_total", "Tokens reported by the harness.", "counter", tokens));
 
