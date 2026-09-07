@@ -38,7 +38,7 @@ test("collect namespaces ids by host, keeps titles local, and tracks a watermark
     turns: [{ id: "t-ship", status: "error", error: "boom: /home/me/secret.ts" }],
     events: [{ id: "e-ship", turn_id: "t-ship", type: "model.message", raw: { content: "text", usage: { inputTokens: 9, outputTokens: 1 } } }],
   });
-  const b = collect("2026-09-01T00:00:00Z");
+  const b = collect("2026-08-01T00:00:00Z");
   const s = b.sessions.find((x: any) => x.id === "testbox:s-ship") as any;
   assert.equal(s.agent_name, "testbox/myrepo");
   assert.equal(s.title, null, "titles are prompt text and stay local");
@@ -57,4 +57,21 @@ test("collect namespaces ids by host, keeps titles local, and tracks a watermark
   const empty = collect("2026-09-30T00:00:00Z");
   assert.equal(empty.sessions.length, 0);
   assert.equal(empty.watermark, "2026-09-30T00:00:00Z");
+});
+
+test("collect resends a changed session's turns but only its new events", () => {
+  seedSession("s-incr", {
+    updated_at: "2026-09-03T00:00:10Z",
+    turns: [{ id: "t-incr" }],
+    events: [
+      { id: "old-1", turn_id: "t-incr", type: "model.message", created_at: "2026-09-03T00:00:01Z" },
+      { id: "old-2", turn_id: "t-incr", type: "tool.response", created_at: "2026-09-03T00:00:02Z" },
+      { id: "new-1", turn_id: "t-incr", type: "model.message", created_at: "2026-09-03T00:00:09Z" },
+    ],
+  });
+  const b = collect("2026-09-03T00:00:05Z");
+  assert.ok(b.sessions.some((x: any) => x.id === "testbox:s-incr"));
+  assert.ok(b.turns.some((x: any) => x.id === "testbox:t-incr"), "turns resend so status changes land");
+  const ids = b.events.filter((e: any) => e.session_id === "testbox:s-incr").map((e: any) => e.id);
+  assert.deepEqual(ids, ["testbox:new-1"], "only events written since the watermark");
 });
