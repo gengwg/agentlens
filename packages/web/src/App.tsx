@@ -17,8 +17,14 @@ const fmtTokens = (n: number | null | undefined) =>
 // more honestly than $0.00 does.
 const fmtCost = (n: number | null | undefined) =>
   !n || n < 0.005 ? null : n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`;
-const fmtDur = (s: number | null | undefined) =>
-  s == null ? "-" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
+// A session that ran for 3985m says nothing; 66h 26m does, and it is narrower,
+// which matters because worst-first puts the longest sessions on screen at once.
+const fmtDur = (s: number | null | undefined) => {
+  if (s == null) return "-";
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+  return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`;
+};
 const fmtAge = (iso: string | null | undefined) => {
   if (!iso) return null;
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;

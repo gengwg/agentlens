@@ -64,8 +64,8 @@ td { padding: 9px 8px; border-bottom: 1px solid var(--border); white-space: nowr
 .est { color: var(--dim); }
 .branch { color: var(--dim); }
 td .title.dim { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
-td .title { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-td .agent { display: flex; gap: 6px; max-width: 300px; }
+td .title { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td .agent { display: flex; gap: 6px; max-width: 240px; }
 td .agent .repo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 td .agent .branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0; }
 tbody tr.clickable { cursor: pointer; }
