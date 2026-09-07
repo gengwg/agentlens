@@ -4,6 +4,9 @@ import type { Source } from "./sources/types.js";
 // Generic poll loop over all configured sources. Failures are isolated per
 // source and logged only on state transitions, so an absent TrueForge does not
 // spam the console every tick.
+// Exposed as a metric so a stalled collector is visible in Grafana.
+export let lastPollAt = 0;
+
 export function startCollector(sources: Source[], intervalMs = 3000) {
   let running = false;
   const failing = new Map<string, string>();
@@ -26,6 +29,7 @@ export function startCollector(sources: Source[], intervalMs = 3000) {
       console.error("collector: sweep:", (err as Error).message);
     } finally {
       running = false;
+      lastPollAt = Date.now();
     }
   };
   tick();

@@ -18,7 +18,7 @@ function session(o: {
   agent: string;
   title: string | null;
   start: number;
-  turns: { prompt: string; minutes: number; steps: Step[]; status?: string; error?: string; approval?: string }[];
+  turns: { prompt: string; minutes: number; steps: Step[]; status?: string; error?: string; approval?: string; usd?: number }[];
 }) {
   const sid = `demo:${o.id}`;
   let clock = o.start;
@@ -66,7 +66,8 @@ function session(o: {
       error: turn.error ?? null, ingested: 1, pending_actions: turn.approval ? 1 : 0 });
     if (done) {
       putEvent({ id: eid(), session_id: sid, turn_id: tid, type: "turn.done", created_at: at(clock),
-        raw: { state: { status: turn.status ?? "done", message: turn.error ?? null } } });
+        raw: { state: { status: turn.status ?? "done", message: turn.error ?? null,
+          metrics: turn.usd ? { totalCostInUsd: turn.usd } : undefined } } });
     }
     clock += 3;
   });
@@ -80,6 +81,7 @@ session({
     {
       prompt: "Webhook retries pile up after a gateway timeout. Find out why and fix it.",
       minutes: 14,
+      usd: 0.62,
       steps: [
         { say: "Let me look at how retries are scheduled." },
         { tool: "Grep", args: '{"pattern":"scheduleRetry","glob":"src/**/*.ts"}', result: "src/webhooks/retry.ts:41\nsrc/webhooks/queue.ts:88" },
@@ -100,6 +102,7 @@ session({
     {
       prompt: "The nightly invoice export failed again. What broke?",
       minutes: 9,
+      usd: 0.18,
       status: "error",
       error: "export job exited 1",
       steps: [
@@ -120,6 +123,7 @@ session({
     {
       prompt: "Rewrite the getting started page so a new user can run it in under five minutes.",
       minutes: 21,
+      usd: 1.41,
       steps: [
         { thread: "audit current docs" },
         { thread: "check install paths" },
@@ -140,7 +144,9 @@ session({
 });
 
 session({
-  id: "search-index", source: "claude-code", agent: "search-indexer", start: 150,
+  // TrueForge, because the stale sweep would close a days-old running turn from
+  // a local harness and the demo wants one session still in flight.
+  id: "search-index", source: "trueforge", agent: "search-indexer", start: 150,
   title: "reindex after the schema change",
   turns: [
     {
@@ -179,6 +185,7 @@ session({
     {
       prompt: "The staging node pool dropped to one node overnight. Why?",
       minutes: 7,
+      usd: 0.11,
       steps: [
         { tool: "kubectl", args: '{"args":"get events --field-selector reason=ScaleDown"}', result: "ScaleDown: removing node after 10m of low utilization" },
         { say: "The autoscaler reclaimed two idle nodes; nothing failed.", tokens: [17_800, 260] },
@@ -194,6 +201,7 @@ session({
     {
       prompt: "The cart e2e test fails about one run in five. Quarantine it and open a note.",
       minutes: 12,
+      usd: 0.34,
       steps: [
         { tool: "run_terminal_cmd", args: '{"command":"npx playwright test cart --repeat-each 5"}', result: "3 passed, 2 failed (timeout waiting for #cart-total)", error: true },
         { say: "It waits on a total that renders after a debounce. Quarantining rather than papering over it." },
@@ -211,6 +219,7 @@ session({
     {
       prompt: "Draft release notes for 2.4 from the merged PRs.",
       minutes: 5,
+      usd: 0.07,
       steps: [
         { tool: "run_command", args: '{"command":"gh pr list --state merged --search milestone:2.4"}', result: "14 pull requests" },
         { say: "Grouped into four themes with the two breaking changes first." },
