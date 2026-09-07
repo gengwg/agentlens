@@ -329,10 +329,9 @@ Grafana shipped Agent Observability, with coding-agent plugins for Claude Code,
 Cursor, OpenCode and Codex that default to metadata-only capture and even have
 a local mode. That is this project's problem statement with a product team
 behind it, so the interesting question stopped being "how do we compete" and
-became "what do we do that they cannot". Their plugins install hooks, so they
-see sessions started after installation. AgentLens reads the logs the harnesses
-already wrote: 3,112 sessions and 62,243 model calls across two machines, none
-of it instrumented in advance.
+became "what do we do that they cannot". The answer I gave myself was
+retroactive history, and it was wrong - see the correction below, added the same
+day.
 
 So: AgentLens collects, Grafana renders. `GET /metrics` exposes the fleet in
 Prometheus format and `docs/grafana-dashboard.json` is an importable dashboard.
@@ -359,3 +358,23 @@ Verified with a throwaway Prometheus and Grafana in Docker scraping the demo
 fleet under a synthetic load generator: every panel binds and draws, and
 /metrics agrees with /api/stats on sessions, tool calls and tokens to the digit.
 The screenshot in the README is that, not anyone's real fleet.
+
+## 2026-09-07 - Correction: they do backfill history
+
+The entry above claims Grafana's plugins only see sessions started after
+installation, so reading existing logs was AgentLens's remaining edge. That is
+false. `agento11y history import <claude-code|codex|cursor|opencode|pi>` exists,
+with a session picker, `--since` defaulting to 90 days, `--all`, `--dry-run`, a
+ledger so repeats do not double-export, and `--local`. A dry run on this machine
+planned 140 sessions and about 11,946 turns.
+
+I asserted the opposite repeatedly, in the README, in PR #47 and in a release
+note, having read their plugin docs but never their CLI's help output. The docs
+describe how capture works; the binary lists what it can do. Reading the second
+would have taken one command.
+
+What genuinely remains: harness coverage they do not have (dsh, Roo Code,
+Antigravity CLI, TrueForge), the trace view and its approval gate, the
+investigator agent, and being self-hostable and open end to end. That is a
+narrower claim than the one this log made this morning, and the recommendation
+for a team of four is now plainly their tool, not this one.
