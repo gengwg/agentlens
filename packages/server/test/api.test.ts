@@ -158,3 +158,18 @@ test("POST /api/ingest stores a shipped branch, bounded in length", async () => 
   assert.equal(by.br2.length, 200, "a long branch is truncated rather than stored whole");
   assert.equal(by.br3, null, "a non-string branch is ignored");
 });
+
+test("a branch shipped later fills a session that arrived without one", async () => {
+  const post = (b: unknown) =>
+    app.request("/api/ingest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+  const session = { id: "br-late", agent_name: "box/repo2", created_at: "2026-09-01T00:00:00Z" };
+
+  await post({ source: "shipped", sessions: [session] });
+  const before = (await (await app.request("/api/sessions?q=box/repo2&limit=5")).json()) as any;
+  assert.equal(before.sessions[0].branch, null);
+
+  // The sender upgrades and resends: the gap fills rather than staying blank.
+  await post({ source: "shipped", sessions: [{ ...session, branch: "develop" }] });
+  const after = (await (await app.request("/api/sessions?q=box/repo2&limit=5")).json()) as any;
+  assert.equal(after.sessions[0].branch, "develop");
+});
