@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { redactEventRaw } from "./redact-secrets.js";
 
 export const db = new Database(process.env.AGENTLENS_DB ?? "agentlens.db");
 db.pragma("journal_mode = WAL");
@@ -127,17 +128,33 @@ export const upsertTurn = db.prepare(`
   ON CONFLICT(id) DO UPDATE SET completed_at=@completed_at, status=@status, error=@error, ingested=@ingested, pending_actions=@pending_actions
 `);
 
-export const insertEvent = db.prepare(`
+const insertEventStmt = db.prepare(`
   INSERT OR IGNORE INTO events (id, session_id, turn_id, thread_id, type, created_at, raw, seq)
   VALUES (@id, @session_id, @turn_id, @thread_id, @type, @created_at, @raw, ${NEXT_SEQ})
 `);
 
 // For sources that mutate records in place after first write (OpenCode).
-export const upsertEvent = db.prepare(`
+const upsertEventStmt = db.prepare(`
   INSERT INTO events (id, session_id, turn_id, thread_id, type, created_at, raw, seq)
   VALUES (@id, @session_id, @turn_id, @thread_id, @type, @created_at, @raw, ${NEXT_SEQ})
   ON CONFLICT(id) DO UPDATE SET raw=excluded.raw, created_at=excluded.created_at, seq=${NEXT_SEQ}
 `);
+
+// Every adapter writes through one of these two, so masking secrets here covers
+// all of them: prompts, model output, tool arguments and tool results alike.
+// The statements keep their `.run(row)` shape so no call site changes.
+type EventRow = {
+  id: string;
+  session_id: string;
+  turn_id: string;
+  thread_id: string | null;
+  type: string;
+  created_at: string | null;
+  raw: string;
+};
+const masked = (e: EventRow): EventRow => ({ ...e, raw: redactEventRaw(e.raw) });
+export const insertEvent = { run: (e: EventRow) => insertEventStmt.run(masked(e)) };
+export const upsertEvent = { run: (e: EventRow) => upsertEventStmt.run(masked(e)) };
 
 // TrueForge wraps MCP tool failures as a content string starting with {"error"
 // (prefix match, not %error%, so tool output that merely quotes an error is
