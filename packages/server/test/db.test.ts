@@ -203,3 +203,17 @@ test("sweepStaleTurns closes idle running turns of local sources only", () => {
   assert.equal(status("st2").status, "running");
   assert.equal(status("st3").status, "running");
 });
+
+test("token rollups treat cache as tokens in, old rows and new alike", () => {
+  seedSession("s-cache", {
+    events: [
+      // Written before cache was split out: everything folded into inputTokens.
+      { id: "tc-old", type: "model.message", raw: { usage: { inputTokens: 1000, outputTokens: 10 } } },
+      // Written after: the same 1000 in, reported as its parts.
+      { id: "tc-new", type: "model.message", raw: { usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 850, cacheWriteTokens: 50 } } },
+    ],
+  });
+  const s = summary("s-cache");
+  assert.equal(s.input_tokens, 2000, "both rows report 1000 tokens in");
+  assert.equal(s.output_tokens, 20);
+});
