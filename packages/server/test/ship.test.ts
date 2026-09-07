@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { seedSession, upsertEvent } from "./fixtures.ts";
+import { db, seedSession, upsertEvent } from "./fixtures.ts";
 
 process.env.AGENTLENS_HOST_NAME = "testbox";
 const { collect, redact } = await import("../src/ship.ts");
@@ -125,4 +125,22 @@ test("collect skips events whose session row does not exist yet", () => {
   const b = collect("2026-09-05T00:00:00Z", before.seq);
   assert.equal(b.events.length, 0);
   assert.ok(b.seq > before.seq, "the cursor still advances so one orphan cannot stall shipping");
+});
+
+test("a branch travels to the shared server, and can be held back", () => {
+  seedSession("s-branch", { agent: "repo", updated_at: "2026-09-06T00:00:00Z" });
+  db.prepare(`UPDATE sessions SET branch = ? WHERE id = ?`).run("release/2.4", "s-branch");
+
+  const shipped = collect("2026-09-05T00:00:00Z").sessions.find((s: any) => s.id === "testbox:s-branch") as any;
+  assert.equal(shipped.branch, "release/2.4", "the fleet can answer what ran on which branch");
+  assert.equal(shipped.title, null, "titles still stay local");
+
+  // A branch name says something about the work, so there is a way out.
+  process.env.AGENTLENS_SHIP_BRANCH = "0";
+  try {
+    const held = collect("2026-09-05T00:00:00Z").sessions.find((s: any) => s.id === "testbox:s-branch") as any;
+    assert.equal(held.branch, null);
+  } finally {
+    delete process.env.AGENTLENS_SHIP_BRANCH;
+  }
 });
