@@ -4,7 +4,15 @@ import { api, type FleetTotals, type Report, type SessionSummary, type SourceSta
 const PAGE = 200;
 
 const fmtTokens = (n: number | null | undefined) =>
-  n == null ? "-" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  n == null
+    ? "-"
+    : n >= 1e9
+      ? `${(n / 1e9).toFixed(1)}B`
+      : n >= 1e6
+        ? `${(n / 1e6).toFixed(1)}M`
+        : n >= 1000
+          ? `${(n / 1000).toFixed(1)}k`
+          : String(n);
 const fmtDur = (s: number | null | undefined) =>
   s == null ? "-" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
 const fmtAge = (iso: string | null | undefined) => {
