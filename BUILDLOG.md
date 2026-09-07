@@ -226,3 +226,18 @@ assets into dist/web without clearing it first. Vite hashes filenames, so every
 past bundle survived: six asset files where the page references two, 230 kB
 instead of 101 kB. The copy now clears its target.
 
+## 2026-09-06 - The shipper was resending whole histories
+
+A review pass on the new shipper found it resending every event of any session
+that changed, so an active session pushed its entire history every 60 seconds:
+2074 events and 946 KB per pass on a real database. Events are append-only, so
+only the ones written since the last watermark now travel, which is 32 events
+and 30 KB for the same state. A first pass, which can be 17 MB, is chunked
+rather than sent as one request, and a non-numeric --interval is rejected
+instead of becoming setInterval(NaN).
+
+Checked end to end into an empty receiver: 189 sessions, 2281 turns and 40048
+events landed, no event without its turn, and a second pass shipped nothing.
+The 11 turns the sender holds back are orphans with no session row, which the
+dashboard never shows either.
+
