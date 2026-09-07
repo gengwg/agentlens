@@ -20,7 +20,7 @@ export function ingestTranscript(chatId: string, lines: any[], meta: Meta) {
   const t1 = meta.updatedAtMs ?? t0;
   const at = (i: number) => iso(t0 + ((t1 - t0) * i) / Math.max(lines.length - 1, 1));
   const firstUser = lines.find((l) => l.role === "user");
-  ensureSession({ id: chatId, source: SOURCE, agent_name: meta.cwd ? basename(meta.cwd) : SOURCE,
+  ensureSession({ id: chatId, source: SOURCE, cwd: meta.cwd, agent_name: meta.cwd ? basename(meta.cwd) : SOURCE,
     title: meta.title ?? (firstUser ? textOf(firstUser.message?.content).slice(0, 80) : null), created_at: iso(t0), updated_at: iso(t1) });
   let turn: string | undefined;
   lines.forEach((l, i) => {

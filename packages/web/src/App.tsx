@@ -325,8 +325,12 @@ function SessionTable({
                 <span className="badge source">{s.source}</span>
               </td>
               <td className="mono">
-                <div className="agent" title={s.agent_name}>
+                {/* The branch the session started on, where the harness knew a
+                    working directory. Searchable, so "on which branch" is a
+                    question the filter box can answer. */}
+                <div className="agent" title={s.branch ? `${s.agent_name} on ${s.branch}` : s.agent_name}>
                   {s.agent_name}
+                  {s.branch && <span className="branch"> {s.branch}</span>}
                 </div>
               </td>
               <td className="dim">

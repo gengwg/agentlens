@@ -107,6 +107,15 @@ are not read.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
 (`8791`), `AGENTLENS_HOST` (`127.0.0.1`, see Shared server below).
 
+A session records the git branch it started on, read from `.git/HEAD` in the
+harness's working directory - no subprocess, and it works when git is absent.
+It shows beside the agent name and the filter box matches it, so "what ran on
+`release/2.4`" is a question the table can answer. TrueForge sessions have no
+working directory and so no branch, and a session that outlives a checkout
+keeps the branch it began on, since the logs do not record when a checkout
+happened. It is deliberately **not** a `/metrics` label: branches are unbounded
+over time and would multiply every series by them.
+
 Secrets are masked before an event is stored. A session records whatever
 crossed it - a key pasted into a prompt, a `printenv`, a `.env` read back by a
 tool - and `agentlens.db` is a file with no authentication in front of it, so a
