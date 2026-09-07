@@ -241,3 +241,27 @@ events landed, no event without its turn, and a second pass shipped nothing.
 The 11 turns the sender holds back are orphans with no session row, which the
 dashboard never shows either.
 
+
+## 2026-09-06 - "Append-only" was not true, and the shipper believed it
+
+The previous entry's premise was wrong. Events are append-only for Claude Code,
+which reads immutable JSONL, but not for OpenCode: it rewrites a message row in
+place while a step streams, filling in token counts and tool calls, and keeps
+the original timestamp. The session's updated_at moves to the completion time,
+so the corrected event always sorted below the shipping watermark and never
+travelled. The shared server kept whichever half-finished version happened to
+ship first. The same reasoning failure dropped events whose harness timestamp
+predates the watermark, which happens because created_at comes from the log,
+not from insertion order.
+
+Events now carry a seq column, bumped on every write, insert or update, and the
+shipper keeps a cursor on it; the timestamp cursor still decides which sessions
+and turns resend, since those genuinely mutate. An event rewritten in place now
+ships again with the same timestamp, verified against a real database: the
+rewritten row landed at the receiver with its corrected token count. A full
+pass into an empty receiver moved 189 sessions, 2286 turns and 40212 events,
+none missing a turn or session, and the only strings that crossed were the two
+placeholders the redactor writes. Two smaller ones from the same review: a pass
+is now many requests, so a slow one no longer overlaps the next tick on the
+same cursor, and --interval has an upper bound, since anything past ~24 days
+overflows Node's timer and clamps to 1 ms.

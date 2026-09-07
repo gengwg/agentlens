@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS events (
   thread_id TEXT,
   type TEXT NOT NULL,
   created_at TEXT,
-  raw TEXT NOT NULL
+  raw TEXT NOT NULL,
+  seq INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS cursors (
 for (const sql of [
   `ALTER TABLE turns ADD COLUMN pending_actions INTEGER DEFAULT 0`,
   `ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'trueforge'`,
+  `ALTER TABLE events ADD COLUMN seq INTEGER`,
 ]) {
   try {
     db.exec(sql);
@@ -60,6 +62,14 @@ for (const sql of [
     // column already exists
   }
 }
+
+// `seq` is bumped on every event write, insert or update, so a shipper can ask
+// for what changed since it last looked. created_at cannot answer that: it
+// comes from the harness log, so it can arrive out of order, and a source that
+// corrects a record in place (OpenCode) keeps the original timestamp.
+db.exec(`CREATE INDEX IF NOT EXISTS idx_events_seq ON events(seq)`);
+db.exec(`UPDATE events SET seq = rowid WHERE seq IS NULL`);
+const NEXT_SEQ = `(SELECT IFNULL(MAX(seq), 0) + 1 FROM events)`;
 
 export const upsertSession = db.prepare(`
   INSERT INTO sessions (id, agent_name, title, created_at, updated_at, created_by, source)
@@ -114,15 +124,15 @@ export const upsertTurn = db.prepare(`
 `);
 
 export const insertEvent = db.prepare(`
-  INSERT OR IGNORE INTO events (id, session_id, turn_id, thread_id, type, created_at, raw)
-  VALUES (@id, @session_id, @turn_id, @thread_id, @type, @created_at, @raw)
+  INSERT OR IGNORE INTO events (id, session_id, turn_id, thread_id, type, created_at, raw, seq)
+  VALUES (@id, @session_id, @turn_id, @thread_id, @type, @created_at, @raw, ${NEXT_SEQ})
 `);
 
 // For sources that mutate records in place after first write (OpenCode).
 export const upsertEvent = db.prepare(`
-  INSERT INTO events (id, session_id, turn_id, thread_id, type, created_at, raw)
-  VALUES (@id, @session_id, @turn_id, @thread_id, @type, @created_at, @raw)
-  ON CONFLICT(id) DO UPDATE SET raw=excluded.raw, created_at=excluded.created_at
+  INSERT INTO events (id, session_id, turn_id, thread_id, type, created_at, raw, seq)
+  VALUES (@id, @session_id, @turn_id, @thread_id, @type, @created_at, @raw, ${NEXT_SEQ})
+  ON CONFLICT(id) DO UPDATE SET raw=excluded.raw, created_at=excluded.created_at, seq=${NEXT_SEQ}
 `);
 
 // TrueForge wraps MCP tool failures as a content string starting with {"error"
