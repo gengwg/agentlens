@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type FleetTotals, type Report, type SessionSummary, type SourceStatus, type Trace, type TraceEvent } from "./api";
 
 const PAGE = 200;
+// The server clamps a page to this, so asking for more silently does nothing.
+const MAX_ROWS = 2000;
 
 const fmtTokens = (n: number | null | undefined) =>
   n == null
@@ -17,8 +19,14 @@ const fmtTokens = (n: number | null | undefined) =>
 // more honestly than $0.00 does.
 const fmtCost = (n: number | null | undefined) =>
   !n || n < 0.005 ? null : n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`;
-const fmtDur = (s: number | null | undefined) =>
-  s == null ? "-" : s >= 60 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
+// A session that ran for 3985m says nothing; 66h 26m does, and it is narrower,
+// which matters because worst-first puts the longest sessions on screen at once.
+const fmtDur = (s: number | null | undefined) => {
+  if (s == null) return "-";
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+  return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`;
+};
 const fmtAge = (iso: string | null | undefined) => {
   if (!iso) return null;
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -193,9 +201,10 @@ export function App() {
             q={q}
             setQ={setQ}
             matched={matched}
+            atCap={limit >= MAX_ROWS}
             sort={sort}
             setSort={setSort}
-            onMore={() => setLimit((n) => n + PAGE)}
+            onMore={() => setLimit((n) => Math.min(n + PAGE, MAX_ROWS))}
           />
           <ReportPanel reports={reports} />
         </main>
@@ -244,6 +253,7 @@ function SessionTable({
   q,
   setQ,
   matched,
+  atCap,
   sort,
   setSort,
   onMore,
@@ -253,6 +263,7 @@ function SessionTable({
   q: string;
   setQ: (q: string) => void;
   matched: number;
+  atCap: boolean;
   sort: "recent" | "score";
   setSort: (s: "recent" | "score") => void;
   onMore: () => void;
@@ -372,11 +383,16 @@ function SessionTable({
           )}
         </tbody>
       </table>
-      {matched > rows.length && (
-        <button className="more" onClick={onMore}>
-          show {Math.min(PAGE, matched - rows.length)} more
-        </button>
-      )}
+      {matched > rows.length &&
+        (atCap ? (
+          <div className="more muted">
+            showing the first {rows.length} of {matched}; narrow the filter to see the rest
+          </div>
+        ) : (
+          <button className="more" onClick={onMore}>
+            show {Math.min(PAGE, matched - rows.length)} more
+          </button>
+        ))}
     </section>
   );
 }
