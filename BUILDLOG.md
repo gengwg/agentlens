@@ -475,3 +475,39 @@ sessions from before the cache split stay empty rather than wrong.
 
 On the real fleet that is 27 of 194 rows priced today, one of them an estimate.
 The rest fill in as collectors write split-aware events.
+
+## 2026-09-07 - Masking secrets before they reach the disk
+
+A session records whatever crossed it. A key pasted into a prompt, a
+`printenv`, a `.env` read back by a tool: all of it landed in `agentlens.db` in
+clear text, a file with no authentication in front of it. A token in a
+transcript is a token at rest.
+
+The pattern table is the tier-1 set from Grafana's agento11y, Apache-2.0, whose
+patterns are hand-curated from Gitleaks. Twenty-two high-confidence formats:
+cloud and provider API keys, GitHub and Slack tokens, private-key blocks,
+connection strings carrying credentials, bearer tokens. Their mask format is
+kept verbatim so their own fixtures serve as the tests here, and all 28
+light-mode cases pass unchanged, which is the only real proof a transcribed
+regex is faithful.
+
+Their tier 2 is deliberately left out. It guesses at key=value shapes, which is
+right for a product that must not leak and wrong here, because
+`DB_PASSWORD=hunter2` in a transcript is often the thing you opened the
+transcript to find.
+
+Masking happens in the two prepared statements every adapter writes through,
+not per field and not per adapter, so prompts, model output, tool arguments and
+tool results are covered in one pass. The event is already serialized JSON at
+that point and every mask is plain ASCII, so masking the serialized form cannot
+break it. Cost is 2 microseconds for text with no secret in it and 4 with one.
+
+Scanning the existing 44,934 events, 12 across 8 sessions contain something the
+masker would now remove. Some of those are certainly the example tokens from
+today's own work on this feature, and I did not look to find out which. Old rows
+are not rewritten; `AGENTLENS_REDACT=0` turns the whole thing off.
+
+A pleasing detail: the first push was rejected by GitHub's own secret scanning,
+because the borrowed fixtures carry realistic example keys. That is exactly the
+right behaviour from it, so the corpus is stored base64 and decoded by the test
+rather than allowlisted.
