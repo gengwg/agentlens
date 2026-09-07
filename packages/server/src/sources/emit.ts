@@ -8,6 +8,15 @@ import { maskText } from "../redact-secrets.js";
 export const MAX_TOOL_OUTPUT = 64 * 1024;
 
 const sessionExists = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
+
+// Two writers for sessions.title, and only these two anywhere in the tree:
+//   setTitle       fills an empty title, so a later, worse guess cannot clobber
+//                  a good one (ensureSession runs on every poll of a session)
+//   renameStmt     overwrites, for a harness that names a session after the
+//                  fact (dsh's session/title, Claude Code's ai-title)
+// Both mask, which makes that split the security boundary as well as the
+// correctness rule: an adapter reaching for the column directly would bypass
+// redaction, and one did until v0.12.5. Add a writer here or not at all.
 const setTitle = db.prepare(`UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')`);
 const setBranch = db.prepare(`UPDATE sessions SET branch = ? WHERE id = ? AND branch IS NULL`);
 const renameStmt = db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`);
@@ -56,8 +65,7 @@ export function ensureSession(s: {
   });
 }
 
-// For a harness that names a session after it has started (dsh). Masked like
-// every other title: no adapter should write that column itself.
+// The overwrite half of the pair above.
 export const renameSession = (sessionId: string, title: string) => renameStmt.run(maskText(title), sessionId);
 
 export const touch = (sessionId: string, at: string) => touchStmt.run(at, sessionId, at);
