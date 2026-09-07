@@ -9,6 +9,9 @@ import { db, getCursor, setCursor } from "./db.js";
 
 const HOST = process.env.AGENTLENS_HOST_NAME ?? hostname();
 const SHIP_TITLES = process.env.AGENTLENS_SHIP_TITLES === "1";
+// A branch name says which work an agent was on, which is the point of sending
+// it, and less than a prompt would say. AGENTLENS_SHIP_BRANCH=0 holds it back.
+const shipBranch = () => process.env.AGENTLENS_SHIP_BRANCH !== "0";
 
 type Row = Record<string, any>;
 
@@ -75,6 +78,7 @@ export function collect(
       // The machine is part of the agent so one fleet view can separate them.
       agent_name: `${HOST}/${s.agent_name ?? "?"}`,
       title: SHIP_TITLES ? s.title : null,
+      branch: shipBranch() ? s.branch : null,
       created_at: s.created_at,
       updated_at: s.updated_at,
     })),

@@ -532,3 +532,18 @@ unbounded dimension: this fleet has four today, but a team on ticket branches
 would produce hundreds over a year, multiplied by every agent. It lives in the
 table and the filter instead, which is where "what ran on release/2.4" is
 actually asked.
+
+## 2026-09-07 - Branch names travel now
+
+The shipper's rule was "nothing that describes the work", which kept branch
+local along with titles. Seeing the shared fleet without it made the tradeoff
+concrete: a branch name is a great deal less than a prompt and answers a
+question the fleet view could not, namely what ran on `release/2.4`. So it
+ships, with `AGENTLENS_SHIP_BRANCH=0` for anyone whose branch names say more
+than they would like.
+
+The receiving side needed an explicit branch on `upsertSession`, since the
+branch normally comes from reading `.git/HEAD` and there is no working
+directory to read on the shared server. Ingest bounds it at 200 characters and
+ignores anything that is not a string, on the principle that everything
+crossing that endpoint is untrusted.
