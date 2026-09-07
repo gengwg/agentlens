@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 import { db, getCursor, setCursor } from "../db.js";
-import { MAX_TOOL_OUTPUT, closeTurn, ensureSession, iso, openTurn, putEvent, textOf, touch } from "./emit.js";
+import { MAX_TOOL_OUTPUT, closeTurn, ensureSession, iso, openTurn, putEvent, renameSession, textOf, touch } from "./emit.js";
 import type { Source } from "./types.js";
 
 // dsh writes ~/.dsh/sessions/<encoded-cwd>/session-<id>/session.jsonl.zstd:
@@ -47,7 +47,7 @@ export function ingestRecords(sessionId: string, records: any[], state: FileStat
         state.created_at = at ?? undefined;
         break;
       case "session/title":
-        if (d.title) db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run(d.title, sessionId);
+        if (d.title) renameSession(sessionId, d.title);
         break;
       case "turn/start":
         state.turn_id = eid(`t${d.turn}`);
