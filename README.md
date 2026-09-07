@@ -175,6 +175,46 @@ There is no authentication: anyone who can reach the port sees every shipped
 session and can post to it. Keep it on a private network, and remember the
 server also ingests its own local sessions unless you set `AGENTLENS_SOURCES`.
 
+## Send it to Grafana
+
+AgentLens collects; Grafana draws. `GET /metrics` exposes the fleet in
+Prometheus format, so the charting, history and alerting belong to the tool
+that is good at them.
+
+```yaml
+scrape_configs:
+  - job_name: agentlens
+    static_configs:
+      - targets: ["localhost:8788"]
+```
+
+Then import [`docs/grafana-dashboard.json`](docs/grafana-dashboard.json) and
+pick your Prometheus. It draws turns and tool outcomes over time, tool failure
+rate, tokens by model, reported cost by agent, turn-duration percentiles,
+running turns, sessions waiting on an approval, and whether each source is
+still readable.
+
+![Grafana dashboard](docs/grafana.png)
+
+That capture is the demo fleet under synthetic load, so the rates are invented;
+the dip is the collector restarting.
+
+Series are grouped by `source`, `agent` and `model` only, never by session, so
+cardinality stays bounded. Counters are recomputed from SQLite on each scrape
+rather than counted in memory, which means a deleted database reads as a
+counter reset. `agentlens_cost_usd_total` covers only harnesses that report
+cost themselves (OpenCode, Roo Code): it is a floor, not a total.
+
+`/metrics` carries agent and repository names, and no more: no prompts, no
+titles, no tool output. It has no authentication, like the rest of the API, so
+keep the port private.
+
+If you would rather send sessions somewhere else entirely, Grafana's own
+[agento11y](https://github.com/grafana/agento11y) plugins forward Claude Code,
+Cursor, OpenCode and Codex to Grafana Cloud Agent Observability from a launcher
+hook. They capture sessions started after you install them; AgentLens reads the
+logs your harnesses already wrote, so the two answer different questions.
+
 ## Harness feature map
 
 How AgentLens uses TrueForge capabilities (filled in as built):
