@@ -684,3 +684,16 @@ instead - and then both of us ran it. The second run found no matching rows,
 built `IN ()`, threw, and the `&&` chain skipped the restart it was supposed to
 end with. A cleanup command that stops a service should not leave the restart
 behind a conjunction that an empty result set can break.
+
+## 2026-10-19 - Failure codes on the investigator's verdict
+
+Incident reports were free text, so two investigations of the same kind of
+failure could not be counted together. `publish_incident_report` now takes a
+list of `{session_id, code}` pairs from a fixed vocabulary: tool-error, loop,
+stall, wrong-premise, approval-wait, model-error, other. The first cut put one
+list of codes on the whole report, which reads fine on the dashboard but loses
+which session (and so which agent) a code belongs to, and a report can cover
+three sessions from three agents. Per-session rows in `report_codes` keep the
+per-agent failure mix one join away. Session ids the model names are checked
+against the store before anything is written, since an invented id would
+quietly skew those counts.

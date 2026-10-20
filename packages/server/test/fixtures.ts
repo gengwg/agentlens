@@ -16,6 +16,7 @@ export const {
   refreshPrices,
 } = await import("../src/db.ts");
 export const { app } = await import("../src/api.ts");
+export const { buildMcp } = await import("../src/mcp.ts");
 export const { turnRow } = await import("../src/sources/trueforge.ts");
 
 type TurnSpec = {

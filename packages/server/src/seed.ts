@@ -59,7 +59,8 @@ Method:
 3. If timing or token patterns need computation, use export_trace_json and analyze
    the JSON in your sandbox with a short script.
 4. Synthesize one incident report (title, affected agents/sessions, root causes,
-   recommended fixes) and publish it with publish_incident_report. Publishing
+   recommended fixes) and publish it with publish_incident_report, tagging each
+   session with the failure codes that apply (listed in the tool description). Publishing
    requires human approval; wait for it.
 Be terse and factual. Cite session and turn ids.`;
 

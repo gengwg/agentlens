@@ -44,7 +44,7 @@ export type Trace = {
   events: TraceEvent[];
 };
 
-export type Report = { id: number; title: string; body: string; created_at: string };
+export type Report = { id: number; title: string; body: string; codes: { session_id: string; code: string }[]; created_at: string };
 
 export type SourceStatus = { name: string; ok: boolean; detail: string };
 

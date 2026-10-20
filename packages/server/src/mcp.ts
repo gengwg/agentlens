@@ -4,8 +4,20 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { agentSummaries, db, sessionSummaries, sessionTrace } from "./db.js";
 
+// Fixed vocabulary so reports can be compared and counted across investigations.
+export const FAILURE_CODES = {
+  "tool-error": "a tool call failed or its server was unreachable",
+  loop: "repeated the same calls without making progress",
+  stall: "long gap with no progress, or hit an iteration or time limit",
+  "wrong-premise": "acted on a false belief about its environment or task",
+  "approval-wait": "blocked waiting on a human approval",
+  "model-error": "the model or provider failed (rate limit, context overflow, malformed output)",
+  other: "none of the above",
+} as const;
+const codeEnum = z.enum(Object.keys(FAILURE_CODES) as [keyof typeof FAILURE_CODES]);
+
 // MCP tools the investigator agent uses to inspect the fleet.
-function buildMcp() {
+export function buildMcp() {
   const mcp = new McpServer({ name: "agentlens", version: "0.1.0" });
 
   mcp.registerTool(
@@ -93,12 +105,29 @@ function buildMcp() {
     "publish_incident_report",
     {
       description:
-        "Publish the final incident report to the AgentLens dashboard. This is a write action and requires human approval.",
-      inputSchema: { title: z.string(), body: z.string() },
+        "Publish the final incident report to the AgentLens dashboard. This is a write action and requires human approval. " +
+        "codes: one entry per failure seen, naming the session it happened in. " +
+        Object.entries(FAILURE_CODES).map(([k, v]) => `${k}: ${v}`).join("; ") + ".",
+      inputSchema: {
+        title: z.string(),
+        body: z.string(),
+        codes: z.array(z.object({ session_id: z.string(), code: codeEnum })).min(1),
+      },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ title, body }) => {
-      db.prepare(`INSERT INTO reports (title, body) VALUES (?, ?)`).run(title, body);
+    async ({ title, body, codes }) => {
+      // Codes are counted per agent through their session, so a made-up id
+      // would silently skew those counts.
+      const known = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
+      const unknown = [...new Set(codes.map((c) => c.session_id))].filter((id) => !known.get(id));
+      if (unknown.length) {
+        return { isError: true, content: [{ type: "text", text: `Unknown session ids: ${unknown.join(", ")}` }] };
+      }
+      db.transaction(() => {
+        const { lastInsertRowid } = db.prepare(`INSERT INTO reports (title, body) VALUES (?, ?)`).run(title, body);
+        const tag = db.prepare(`INSERT OR IGNORE INTO report_codes (report_id, session_id, code) VALUES (?, ?, ?)`);
+        for (const c of codes) tag.run(lastInsertRowid, c.session_id, c.code);
+      })();
       return { content: [{ type: "text", text: "Report published to dashboard." }] };
     },
   );

@@ -410,6 +410,13 @@ function ReportPanel({ reports }: { reports: Report[] }) {
             <span>{r.title}</span>
             <span className="dim">{fmtTime(r.created_at)}</span>
           </summary>
+          {r.codes.length > 0 && (
+            <div className="codes">
+              {[...new Set(r.codes.map((c) => c.code))].map((code) => (
+                <span key={code} className="badge source">{code}</span>
+              ))}
+            </div>
+          )}
           <pre>{r.body}</pre>
         </details>
       ))}
