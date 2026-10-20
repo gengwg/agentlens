@@ -17,9 +17,16 @@ const ALLOWED_ORIGINS = (process.env.AGENTLENS_CORS_ORIGIN ?? "http://localhost:
 app.use("*", cors({ origin: (o) => (ALLOWED_ORIGINS.includes(o) ? o : null) }));
 
 app.get("/api/agents", (c) => c.json(agentSummaries()));
-app.get("/api/reports", (c) =>
-  c.json(db.prepare(`SELECT * FROM reports ORDER BY id DESC`).all()),
-);
+app.get("/api/reports", (c) => {
+  const rows = db
+    .prepare(
+      `SELECT r.*, (SELECT json_group_array(json_object('session_id', session_id, 'code', code))
+         FROM report_codes WHERE report_id = r.id) AS codes
+       FROM reports r ORDER BY r.id DESC`,
+    )
+    .all() as any[];
+  return c.json(rows.map((r) => ({ ...r, codes: JSON.parse(r.codes) })));
+});
 app.get("/api/sessions", (c) => {
   const q = c.req.query("q")?.slice(0, 100) ?? "";
   const filter = c.req.query("filter") as SessionQuery["filter"];
