@@ -305,7 +305,9 @@ any harness using the AgentLens MCP tools, parallel subagents, sandboxed
 analysis, and an approval gate before publishing its incident report. The
 sandbox needs `bwrap`, `socat`, and `rg` on the host.
 
-1. `npx @truefoundry/trueforge` (TrueForge at http://localhost:8790)
+1. `OUTBOUND_URL_ALLOWED_HOSTS='["localhost"]' npx @truefoundry/trueforge`
+   (TrueForge at http://localhost:8790; recent versions refuse localhost MCP
+   servers unless allowed)
 2. Add a model provider (TrueForge UI settings, or the API).
 3. `SANDBOX=1 npm run seed -w packages/server` registers the AgentLens MCP
    server in TrueForge, creates the investigator plus two demo agents (one wired

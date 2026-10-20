@@ -114,7 +114,7 @@ app.post("/api/investigate", async (c) => {
     agent: { name: "investigator" },
   });
   const prompt = session_id
-    ? `Investigate session ${session_id}. Use get_session_trace first.`
+    ? `Investigate session ${session_id}. Use get_session_trace first, then publish an incident report.`
     : "Triage the fleet: call list_problem_sessions, investigate the worst offenders in parallel with subagents, then produce one incident report.";
   const { data: turn } = await client.sessions.createTurn(session.id, {
     input: [{ type: "user.message", content: prompt }],
