@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS reports (
   body TEXT NOT NULL,
   created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
+CREATE TABLE IF NOT EXISTS report_codes (
+  report_id INTEGER NOT NULL REFERENCES reports(id),
+  session_id TEXT NOT NULL,
+  code TEXT NOT NULL,
+  PRIMARY KEY (report_id, session_id, code)
+);
 CREATE TABLE IF NOT EXISTS model_prices (
   model TEXT PRIMARY KEY,
   input REAL, output REAL, cache_read REAL, cache_write REAL
