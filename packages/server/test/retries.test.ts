@@ -198,3 +198,26 @@ test("thread_id from the event decides the thread", () => {
   });
   assert.deepEqual(sessionRetries("rt-thread"), []);
 });
+
+test("rollup ranks blind retries with the same args first", () => {
+  const busy = toolCallsOf([
+    msg(null, ["a1", "Shell", '{"cmd":"a"}']),
+    res("a1", true),
+    msg(null, ["a2", "Shell", '{"cmd":"b"}']),
+    res("a2", true),
+    msg(null, ["a3", "Shell", '{"cmd":"c"}']),
+    res("a3", false),
+  ]);
+  const blind = toolCallsOf([msg(null, ["b1", "Fetch", '{"u":1}']), res("b1", true), msg(null, ["b2", "Fetch", '{"u":1}']), res("b2", false)]);
+  const stats = rollupRetries([
+    { sessionId: "busy", calls: busy },
+    { sessionId: "blind", calls: blind },
+  ]);
+  assert.deepEqual(
+    stats.map((s) => [s.tool, s.retried, s.sameArgs]),
+    [
+      ["Fetch", 1, 1],
+      ["Shell", 2, 0],
+    ],
+  );
+});

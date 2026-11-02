@@ -719,8 +719,8 @@ with identical arguments and 3 with the same command. Reading samples by eye,
 the call after a failed `ls` or `git fetch` is usually the agent moving on to a
 different command, not retrying. For a focused tool like an MCP `get_issue`,
 "called it again" means a retry; for a shell it means very little. Same args is
-the column to read for blind retries, and the headline Retried column says so
-on hover. Shrinking the window to one call barely helps (Bash 646 instead of
+the column to read for blind retries, so the table and the API rank by it
+first, and the Retried column explains itself on hover. Shrinking the window to one call barely helps (Bash 646 instead of
 694), because the very next shell command is still a shell command.
 
 The first cut said "not in the same message" and a review caught that it was

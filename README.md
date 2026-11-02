@@ -28,8 +28,9 @@ they show the layout without anyone's transcripts.
   same thread, by another call to the same tool. The trace marks each one
   (same or changed args, worked or failed again), and a fleet table ranks
   tools and MCP servers over the last 7 days (`GET /api/retries`, MCP tool
-  `list_tool_retries`). For general tools like Bash the next call is usually
-  a different command, so read Same args as the blind-retry signal.
+  `list_tool_retries`), blind retries with the same args first. For general
+  tools like Bash the next call is usually a different command, so Retried
+  alone overstates them.
 - Investigator agent (a TrueForge agent) that triages failed or slow sessions
   using AgentLens MCP tools, parallel subagents, sandboxed analysis, and an
   approval gate before publishing its incident report.

@@ -166,7 +166,9 @@ export function rollupRetries(sessions: { sessionId: string; calls: ToolCall[] }
   }
   return [...stats.values()]
     .map(({ seen, ...s }) => ({ ...s, sessions: seen.size }))
-    .sort((a, b) => b.retried - a.retried || b.failures - a.failures);
+    // Identical-argument retries are the blind ones; for general tools like a
+    // shell, "called it again" is mostly the agent's next unrelated command.
+    .sort((a, b) => b.sameArgs - a.sameArgs || b.retried - a.retried || b.failures - a.failures);
 }
 
 export function sessionRetries(sessionId: string): Retry[] {

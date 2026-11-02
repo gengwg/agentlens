@@ -87,7 +87,7 @@ export function buildMcp() {
     "list_tool_retries",
     {
       description:
-        "Tools that failed and were retried, per tool and MCP server, worst first. sameArgs counts blind retries with identical arguments; recovered counts retries that then worked.",
+        "Tools that failed and were retried, per tool and MCP server, most blind retries (sameArgs) first. sameArgs counts blind retries with identical arguments; recovered counts retries that then worked.",
       inputSchema: { days: z.number().int().min(1).max(90).default(7) },
     },
     async ({ days }) => ({
