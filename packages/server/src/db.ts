@@ -198,11 +198,13 @@ export const upsertEvent = { run: (e: EventRow) => upsertEventStmt.run(masked(e)
 // (prefix match, not %error%, so tool output that merely quotes an error is
 // not flagged). Other adapters set a normalized raw.error flag instead.
 // A tool the user declined is a choice, not a failure, so those are excluded.
+// OpenCode and dsh say "the user rejected"; a bare "rejected" would also hide
+// real failures such as git's "! [rejected]".
 // `s` is the sessions row of the enclosing query.
 const DENIED = `(json_extract(e.raw,'$.content') LIKE '%Permission for this action was denied%'
   OR json_extract(e.raw,'$.content') LIKE '%doesn''t want to proceed%'
   OR json_extract(e.raw,'$.content') LIKE '%[Request interrupted%'
-  OR json_extract(e.raw,'$.content') LIKE '%rejected%')`;
+  OR json_extract(e.raw,'$.content') LIKE '%user rejected%')`;
 const TOOL_ERROR = `e.type = 'tool.response'
   AND (json_extract(e.raw,'$.error') = 1 OR (s.source = 'trueforge' AND json_extract(e.raw,'$.content') LIKE '{"error"%'))
   AND NOT ${DENIED}`;
@@ -441,7 +443,8 @@ export function sessionToolRows(sessionId: string): ToolRow[] {
       `SELECT e.type, e.thread_id, e.created_at,
         json_extract(e.raw,'$.toolCalls') AS calls,
         json_extract(e.raw,'$.toolCallId') AS call_id,
-        CASE WHEN ${TOOL_ERROR} THEN 1 ELSE 0 END AS failed
+        CASE WHEN ${TOOL_ERROR} THEN 1 ELSE 0 END AS failed,
+        CASE WHEN e.type = 'tool.response' AND ${DENIED} THEN 1 ELSE 0 END AS declined
       FROM events e JOIN sessions s ON s.id = e.session_id
       WHERE e.session_id = ? AND e.type IN ('model.message', 'tool.response')
       ORDER BY e.created_at IS NULL, e.created_at, e.id`,

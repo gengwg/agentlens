@@ -760,7 +760,13 @@ function EventRow({
           {retry && (
             <div className="retry dim">
               retried with {retry.sameArgs ? "the same" : "changed"} args
-              {retry.recovered === null ? " -> pending" : retry.recovered ? " -> worked" : " -> failed again"}
+              {retry.declined
+                ? " -> declined"
+                : retry.recovered === null
+                  ? " -> pending"
+                  : retry.recovered
+                    ? " -> worked"
+                    : " -> failed again"}
             </div>
           )}
         </Row>
