@@ -15,6 +15,7 @@ export const {
   sweepStaleTurns,
   refreshPrices,
 } = await import("../src/db.ts");
+export const { RETRY_WINDOW, toolCallsOf, findRetries, serverOf, rollupRetries, sessionRetries, fleetRetries } = await import("../src/retries.ts");
 export const { app } = await import("../src/api.ts");
 export const { buildMcp } = await import("../src/mcp.ts");
 export const { turnRow } = await import("../src/sources/trueforge.ts");
@@ -32,6 +33,7 @@ type EventSpec = {
   id: string;
   turn_id?: string;
   type: string;
+  thread_id?: string | null;
   created_at?: string | null;
   raw?: unknown;
 };

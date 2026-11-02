@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type FleetTotals, type Report, type SessionSummary, type SourceStatus, type Trace, type TraceEvent } from "./api";
+import {
+  api,
+  type FleetTotals,
+  type Report,
+  type Retry,
+  type SessionSummary,
+  type SourceStatus,
+  type ToolRetryStat,
+  type Trace,
+  type TraceEvent,
+} from "./api";
 
 const PAGE = 200;
 // The server clamps a page to this, so asking for more silently does nothing.
@@ -54,6 +64,7 @@ function StatusDot({ status }: { status: string }) {
 export function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [retryStats, setRetryStats] = useState<ToolRetryStat[]>([]);
   const [sources, setSources] = useState<SourceStatus[]>([]);
   const [selected, select] = useState<string | null>(
     () => new URLSearchParams(location.search).get("session"),
@@ -102,6 +113,10 @@ export function App() {
       })
       .catch(() => setOffline(true));
   };
+  // A week of retries scans every failing session, so it loads once, not per poll.
+  useEffect(() => {
+    api.retries(7).then(setRetryStats).catch(() => {});
+  }, []);
   useEffect(() => {
     // Typing should not fire a query per keystroke.
     const debounce = setTimeout(refresh, q ? 250 : 0);
@@ -195,17 +210,20 @@ export function App() {
         />
       ) : (
         <main>
-          <SessionTable
-            sessions={sessions}
-            onSelect={setSelected}
-            q={q}
-            setQ={setQ}
-            matched={matched}
-            atCap={limit >= MAX_ROWS}
-            sort={sort}
-            setSort={setSort}
-            onMore={() => setLimit((n) => Math.min(n + PAGE, MAX_ROWS))}
-          />
+          <div className="col">
+            <SessionTable
+              sessions={sessions}
+              onSelect={setSelected}
+              q={q}
+              setQ={setQ}
+              matched={matched}
+              atCap={limit >= MAX_ROWS}
+              sort={sort}
+              setSort={setSort}
+              onMore={() => setLimit((n) => Math.min(n + PAGE, MAX_ROWS))}
+            />
+            <RetryTable stats={retryStats} />
+          </div>
           <ReportPanel reports={reports} />
         </main>
       )}
@@ -397,6 +415,45 @@ function SessionTable({
   );
 }
 
+function RetryTable({ stats }: { stats: ToolRetryStat[] }) {
+  if (stats.length === 0) return null;
+  return (
+    <section className="card grow">
+      <div className="cardHead">
+        <h2>Retried tools (7 days)</h2>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Tool</th>
+            <th>Server</th>
+            <th>Failures</th>
+            <th title="Called the same tool again within 3 calls. For general tools like Bash this is often a different command.">
+              Retried
+            </th>
+            <th title="Retried with identical arguments: a blind retry">Same args</th>
+            <th>Recovered</th>
+            <th>Sessions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {stats.map((s) => (
+            <tr key={s.tool}>
+              <td className="mono">{s.tool}</td>
+              <td className="dim">{s.server ?? "-"}</td>
+              <td>{s.failures}</td>
+              <td>{s.retried}</td>
+              <td>{s.sameArgs}</td>
+              <td>{s.recovered}</td>
+              <td>{s.sessions}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 function ReportPanel({ reports }: { reports: Report[] }) {
   return (
     <section className="card reports">
@@ -517,6 +574,7 @@ function TraceView({
     : events;
 
   // toolCallId -> tool name, gathered from assistant messages.
+  const retries = useMemo(() => new Map((trace?.retries ?? []).map((r) => [r.failedCallId, r])), [trace]);
   const toolNames = useMemo(() => {
     const m = new Map<string, string>();
     for (const e of events) {
@@ -573,6 +631,7 @@ function TraceView({
             ev={e}
             sessionId={sessionId}
             toolNames={toolNames}
+            retries={retries}
             approvalTurnId={approvalTurnId}
           />
         ))}
@@ -660,11 +719,13 @@ function EventRow({
   ev,
   sessionId,
   toolNames,
+  retries,
   approvalTurnId,
 }: {
   ev: TraceEvent;
   sessionId: string;
   toolNames: Map<string, string>;
+  retries: Map<string, Retry>;
   approvalTurnId: string | null;
 }) {
   const raw = ev.raw;
@@ -691,12 +752,20 @@ function EventRow({
         </Row>
       );
     }
-    case "tool.response":
+    case "tool.response": {
+      const retry = retries.get(raw.toolCallId);
       return (
         <Row tag="TOOL" cls={raw.error ? "error" : "tool"} time={ev.created_at} sub={sub}>
           <span className="mono">{String(raw.content).slice(0, 500)}</span>
+          {retry && (
+            <div className="retry dim">
+              retried with {retry.sameArgs ? "the same" : "changed"} args
+              {retry.recovered === null ? " -> pending" : retry.recovered ? " -> worked" : " -> failed again"}
+            </div>
+          )}
         </Row>
       );
+    }
     case "thread.created":
       return (
         <Row tag="SUBAGENT" cls="subagent" time={ev.created_at}>

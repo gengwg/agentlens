@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { branchOf } from "./git-branch.js";
 import { maskText, redactEventRaw } from "./redact-secrets.js";
+import { sessionRetries, type ToolRow } from "./retries.js";
 
 export const db = new Database(process.env.AGENTLENS_DB ?? "agentlens.db");
 db.pragma("journal_mode = WAL");
@@ -428,7 +429,30 @@ export function sessionTrace(sessionId: string) {
     session,
     turns,
     events: events.map((e) => ({ ...e, raw: JSON.parse(e.raw) })),
+    retries: sessionRetries(sessionId),
   };
+}
+
+// Selects only the fields retry detection needs, so large tool output is never
+// parsed, and computes failure with TOOL_ERROR so it matches the rest of the UI.
+export function sessionToolRows(sessionId: string): ToolRow[] {
+  return db
+    .prepare(
+      `SELECT e.type, e.thread_id, e.created_at,
+        json_extract(e.raw,'$.toolCalls') AS calls,
+        json_extract(e.raw,'$.toolCallId') AS call_id,
+        CASE WHEN ${TOOL_ERROR} THEN 1 ELSE 0 END AS failed
+      FROM events e JOIN sessions s ON s.id = e.session_id
+      WHERE e.session_id = ? AND e.type IN ('model.message', 'tool.response')
+      ORDER BY e.created_at IS NULL, e.created_at, e.id`,
+    )
+    .all(sessionId) as ToolRow[];
+}
+
+export function retryCandidateSessions(since: string): string[] {
+  return (db.prepare(`SELECT s.id FROM sessions s WHERE s.updated_at >= ? AND ${MATCH.toolErrors}`).all(since) as { id: string }[]).map(
+    (r) => r.id,
+  );
 }
 
 export function agentSummaries() {
