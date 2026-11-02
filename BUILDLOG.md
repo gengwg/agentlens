@@ -731,3 +731,11 @@ rule is now positional: a retry has to come after the failed call's response.
 
 The copy needed the WAL too: the database had 68 MB of uncheckpointed pages,
 and copying only `agentlens.db` would have dropped them.
+
+Two follow-ups from the review. A retry the user declined used to show as
+"worked", because a decline is not a failure; it now reads "declined" and does
+not count as recovered (10 retries in the local data). And the decline filter
+matched any "rejected", which also hid real failures: git's `! [rejected]`, a
+GitHub push-rule rejection, ripgrep rejecting a pattern. The real declines all
+say "the user rejected" (OpenCode, dsh), so that is what it matches now, and 8
+hidden tool errors in 8 sessions show up again.

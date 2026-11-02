@@ -37,6 +37,28 @@ test("declined tools count as denials, not errors", () => {
   assert.equal(s.tool_denials, 2);
 });
 
+test("a remote rejecting a push is a tool error; a user rejecting a tool is a denial", () => {
+  seedSession("s-rejected", {
+    source: "claude-code",
+    events: [
+      { id: "rj1", type: "tool.response", raw: { content: "Exit code 1 To github.com:me/repo.git ! [rejected] master -> master (fetch first)", error: true } },
+      { id: "rj2", type: "tool.response", raw: { content: "Search failed: ripgrep rejected the pattern", error: true } },
+    ],
+  });
+  assert.equal(summary("s-rejected").tool_errors, 2);
+  assert.equal(summary("s-rejected").tool_denials, 0);
+
+  seedSession("s-user-rejected", {
+    source: "opencode",
+    events: [
+      { id: "ur1", type: "tool.response", raw: { content: "The user rejected permission to use this specific tool call.", error: true } },
+      { id: "ur2", type: "tool.response", raw: { content: 'Error: the user rejected tool "bash"', error: true } },
+    ],
+  });
+  assert.equal(summary("s-user-rejected").tool_errors, 0);
+  assert.equal(summary("s-user-rejected").tool_denials, 2);
+});
+
 test("agentSummaries separates failed turns from tool errors", () => {
   seedSession("s-agg-fail", { agent: "agg", turns: [{ id: "af1", status: "error" }] });
   seedSession("s-agg-tool", { agent: "agg", events: [{ id: "at1", type: "tool.response", raw: { content: "boom", error: true } }] });

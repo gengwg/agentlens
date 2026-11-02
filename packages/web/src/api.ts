@@ -54,6 +54,7 @@ export type Retry = {
   retryCallId: string;
   sameArgs: boolean;
   recovered: boolean | null;
+  declined: boolean;
   gapSeconds: number | null;
 };
 

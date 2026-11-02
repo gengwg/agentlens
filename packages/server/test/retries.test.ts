@@ -12,14 +12,16 @@ const msg = (thread: string | null, ...calls: Call[]): ToolRow => ({
   calls: JSON.stringify(calls.map(([id, name, args]) => ({ id, function: { name, arguments: args } }))),
   call_id: null,
   failed: 0,
+  declined: 0,
 });
-const res = (callId: string, failed: boolean): ToolRow => ({
+const res = (callId: string, failed: boolean, declined = false): ToolRow => ({
   type: "tool.response",
   thread_id: null,
   created_at: null,
   calls: null,
   call_id: callId,
   failed: failed ? 1 : 0,
+  declined: declined ? 1 : 0,
 });
 const retries = (rows: ToolRow[]) => findRetries("s", toolCallsOf(rows));
 
@@ -106,6 +108,13 @@ test("a retry with no response yet is pending", () => {
   const r = retries([msg(null, ["c1", "Bash", "{}"]), res("c1", true), msg(null, ["c2", "Bash", "{}"])]);
   assert.equal(r.length, 1);
   assert.equal(r[0].recovered, null);
+});
+
+test("a retry the user declined is not counted as recovered", () => {
+  const r = retries([msg(null, ["c1", "Bash", "{}"]), res("c1", true), msg(null, ["c2", "Bash", "{}"]), res("c2", false, true)]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].recovered, null);
+  assert.equal(r[0].declined, true);
 });
 
 test("changed arguments are not sameArgs", () => {
@@ -220,4 +229,19 @@ test("rollup ranks blind retries with the same args first", () => {
       ["Shell", 2, 0],
     ],
   );
+});
+
+test("a declined retry is read from the stored response", () => {
+  seedSession("rt-declined-retry", {
+    source: "claude-code",
+    events: [
+      { id: "rtdr1", type: "model.message", raw: call("c1", "Bash") },
+      { id: "rtdr2", type: "tool.response", raw: { toolCallId: "c1", content: "boom", error: true } },
+      { id: "rtdr3", type: "model.message", raw: call("c2", "Bash") },
+      { id: "rtdr4", type: "tool.response", raw: { toolCallId: "c2", content: "The user doesn't want to proceed with this tool use.", error: true } },
+    ],
+  });
+  const [r] = sessionRetries("rt-declined-retry");
+  assert.equal(r.recovered, null);
+  assert.equal(r.declined, true);
 });

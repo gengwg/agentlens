@@ -11,6 +11,7 @@ export type ToolRow = {
   calls: string | null;
   call_id: string | null;
   failed: 0 | 1;
+  declined: 0 | 1;
 };
 
 export type ToolCall = {
@@ -25,6 +26,7 @@ export type ToolCall = {
   row: number;
   responseRow: number | null;
   failed: boolean | null;
+  declined: boolean;
 };
 
 export type Retry = {
@@ -34,7 +36,9 @@ export type Retry = {
   failedCallId: string;
   retryCallId: string;
   sameArgs: boolean;
+  // null while the retry has no response, or when the user declined it.
   recovered: boolean | null;
+  declined: boolean;
   gapSeconds: number | null;
 };
 
@@ -66,9 +70,9 @@ export function serverOf(tool: string): string | null {
 }
 
 export function toolCallsOf(rows: ToolRow[]): ToolCall[] {
-  const responses = new Map<string, { failed: boolean; row: number }>();
+  const responses = new Map<string, { failed: boolean; declined: boolean; row: number }>();
   rows.forEach((r, row) => {
-    if (r.type === "tool.response" && r.call_id && !responses.has(r.call_id)) responses.set(r.call_id, { failed: r.failed === 1, row });
+    if (r.type === "tool.response" && r.call_id && !responses.has(r.call_id)) responses.set(r.call_id, { failed: r.failed === 1, declined: r.declined === 1, row });
   });
   const out: ToolCall[] = [];
   let message = -1;
@@ -96,6 +100,7 @@ export function toolCallsOf(rows: ToolRow[]): ToolCall[] {
         row,
         responseRow: responses.get(c.id)?.row ?? null,
         failed: responses.get(c.id)?.failed ?? null,
+        declined: responses.get(c.id)?.declined ?? false,
       });
     }
   }
@@ -135,7 +140,8 @@ export function findRetries(sessionId: string, calls: ToolCall[]): Retry[] {
         failedCallId: f.id,
         retryCallId: r.id,
         sameArgs: f.args === r.args,
-        recovered: r.failed === null ? null : !r.failed,
+        recovered: r.failed === null || r.declined ? null : !r.failed,
+        declined: r.declined,
         gapSeconds: seconds(f.at, r.at),
       });
     });
