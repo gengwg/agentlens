@@ -4,7 +4,9 @@
 import { db, upsertTurn } from "./db.js";
 import { ensureSession, putEvent } from "./sources/emit.js";
 
-const T0 = Date.parse("2026-09-05T09:00:00Z");
+// Anchored a few hours back, on the hour, so windows like "last 7 days" include
+// the demo fleet whenever it is generated.
+const T0 = Math.floor(Date.now() / 3600e3) * 3600e3 - 5 * 3600e3;
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
 
 type Step =
@@ -83,6 +85,8 @@ session({
       minutes: 14,
       usd: 0.62,
       steps: [
+        { tool: "mcp__github__get_issue", args: '{"repo":"acme/checkout","number":482}', result: "MCP error -32001: Request timed out", error: true },
+        { tool: "mcp__github__get_issue", args: '{"repo":"acme/checkout","number":482}', result: "#482 Webhook retries pile up after a gateway timeout" },
         { say: "Let me look at how retries are scheduled." },
         { tool: "Grep", args: '{"pattern":"scheduleRetry","glob":"src/**/*.ts"}', result: "src/webhooks/retry.ts:41\nsrc/webhooks/queue.ts:88" },
         { tool: "Read", args: '{"file_path":"src/webhooks/retry.ts"}', result: "const backoff = (n) => 2 ** n * 1000; // capped nowhere" },

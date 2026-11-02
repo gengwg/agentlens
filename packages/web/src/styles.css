@@ -44,6 +44,7 @@ input { background: var(--bg); border: 1px solid var(--border); color: var(--tex
 input:focus { outline: none; border-color: var(--accent); }
 
 main { display: flex; gap: 16px; align-items: flex-start; }
+main > .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .card.grow { overflow-x: auto; }
 .cardHead .sort { margin-right: 8px; }
@@ -117,3 +118,4 @@ tbody tr.clickable:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 .tag.misc { background: var(--bg); color: var(--dim); }
 .toolCall { color: var(--orange); margin-top: 6px; font-size: 12px; }
 .approveBtns { display: flex; gap: 8px; margin-top: 8px; }
+.retry { margin-top: 4px; font-size: 12px; }

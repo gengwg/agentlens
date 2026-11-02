@@ -42,6 +42,29 @@ export type Trace = {
     pending_actions: number;
   }[];
   events: TraceEvent[];
+  retries: Retry[];
+};
+
+// Mirrors packages/server/src/retries.ts; the web package does not import from the server.
+export type Retry = {
+  sessionId: string;
+  tool: string;
+  server: string | null;
+  failedCallId: string;
+  retryCallId: string;
+  sameArgs: boolean;
+  recovered: boolean | null;
+  gapSeconds: number | null;
+};
+
+export type ToolRetryStat = {
+  tool: string;
+  server: string | null;
+  failures: number;
+  retried: number;
+  sameArgs: number;
+  recovered: number;
+  sessions: number;
 };
 
 export type Report = { id: number; title: string; body: string; codes: { session_id: string; code: string }[]; created_at: string };
@@ -67,6 +90,7 @@ export const api = {
     return fetch(`/api/sessions?${p}`).then(json);
   },
   stats: (): Promise<FleetTotals> => fetch("/api/stats").then(json),
+  retries: (days = 7): Promise<ToolRetryStat[]> => fetch(`/api/retries?days=${days}`).then(json),
   trace: (id: string): Promise<Trace> => fetch(`/api/sessions/${id}`).then(json),
   agents: (): Promise<any[]> => fetch("/api/agents").then(json),
   reports: (): Promise<Report[]> => fetch("/api/reports").then(json),
