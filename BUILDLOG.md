@@ -697,3 +697,31 @@ three sessions from three agents. Per-session rows in `report_codes` keep the
 per-agent failure mix one join away. Session ids the model names are checked
 against the store before anything is written, since an invented id would
 quietly skew those counts.
+
+## 2026-11-01 - Retried tool calls
+
+Agents rarely report a broken tool; they call it again. A talk at MCPCon 2026
+put it as "agents don't file bugs, they retry", so AgentLens now looks for
+that. A failed call to tool T is retried by the first call to T among the next
+three calls in the same thread that come from a later model message. Calls in
+the same message as the failure were issued before the agent saw it, and a
+subagent's thread is its own, so neither counts. Failure means what the rest of
+the dashboard means by it: the same `TOOL_ERROR` SQL, which already leaves out
+calls the user declined. The trace marks each failed call as retried with the
+same or changed args, and whether the retry worked, failed again or is still
+pending. A fleet table, `GET /api/retries` and an MCP tool for the investigator
+roll it up per tool and per MCP server (`mcp__<server>__<tool>`).
+
+Against a copy of the local database (429 sessions, Aug 12 to Oct 20) the
+rollup takes 72 ms for a week and 374 ms for all of it, so it is computed on
+request with no cache. The surprise was Bash: 712 failures, 694 "retried", 1
+with identical arguments and 3 with the same command. Reading samples by eye,
+the call after a failed `ls` or `git fetch` is usually the agent moving on to a
+different command, not retrying. For a focused tool like an MCP `get_issue`,
+"called it again" means a retry; for a shell it means very little. Same args is
+the column to read for blind retries, and the headline Retried column says so
+on hover. Shrinking the window to one call barely helps (Bash 642 instead of
+694), because the very next shell command is still a shell command.
+
+The copy needed the WAL too: the database had 68 MB of uncheckpointed pages,
+and copying only `agentlens.db` would have dropped them.

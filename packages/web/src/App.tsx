@@ -428,8 +428,10 @@ function RetryTable({ stats }: { stats: ToolRetryStat[] }) {
             <th>Tool</th>
             <th>Server</th>
             <th>Failures</th>
-            <th>Retried</th>
-            <th>Same args</th>
+            <th title="Called the same tool again within 3 calls. For general tools like Bash this is often a different command.">
+              Retried
+            </th>
+            <th title="Retried with identical arguments: a blind retry">Same args</th>
             <th>Recovered</th>
             <th>Sessions</th>
           </tr>
