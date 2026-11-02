@@ -63,6 +63,22 @@ test("a call in the same message as the failure is not its retry", () => {
   assert.deepEqual(r, []);
 });
 
+test("a call issued before the failure came back is not its retry", () => {
+  // Claude Code writes one record per tool_use, so parallel calls land in separate rows.
+  const r = retries([msg(null, ["c1", "Bash", "{}"]), msg(null, ["c2", "Bash", "{}"]), res("c1", true), res("c2", false)]);
+  assert.deepEqual(r, []);
+});
+
+test("a call with no name or no id is skipped", () => {
+  const rows: ToolRow[] = [
+    { ...msg(null), calls: JSON.stringify([{ id: "c1", function: { arguments: "{}" } }, { function: { name: "Bash" } }]) },
+    res("c1", true),
+    msg(null, ["c2", "Bash", "{}"]),
+  ];
+  assert.deepEqual(toolCallsOf(rows).map((c) => c.id), ["c2"]);
+  assert.deepEqual(retries(rows), []);
+});
+
 test("another thread is not a retry", () => {
   const r = retries([msg("main", ["c1", "Bash", "{}"]), res("c1", true), msg("t1:sub", ["c2", "Bash", "{}"]), res("c2", false)]);
   assert.deepEqual(r, []);

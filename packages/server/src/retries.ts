@@ -20,6 +20,10 @@ export type ToolCall = {
   thread: string;
   at: string | null;
   message: number;
+  // Row indexes of the call and of its first response, so a retry can be
+  // required to come after the failure was visible.
+  row: number;
+  responseRow: number | null;
   failed: boolean | null;
 };
 
@@ -62,13 +66,13 @@ export function serverOf(tool: string): string | null {
 }
 
 export function toolCallsOf(rows: ToolRow[]): ToolCall[] {
-  const failed = new Map<string, boolean>();
-  for (const r of rows) {
-    if (r.type === "tool.response" && r.call_id && !failed.has(r.call_id)) failed.set(r.call_id, r.failed === 1);
-  }
+  const responses = new Map<string, { failed: boolean; row: number }>();
+  rows.forEach((r, row) => {
+    if (r.type === "tool.response" && r.call_id && !responses.has(r.call_id)) responses.set(r.call_id, { failed: r.failed === 1, row });
+  });
   const out: ToolCall[] = [];
   let message = -1;
-  for (const r of rows) {
+  for (const [row, r] of rows.entries()) {
     if (r.type !== "model.message") continue;
     message++;
     if (!r.calls) continue;
@@ -89,7 +93,9 @@ export function toolCallsOf(rows: ToolRow[]): ToolCall[] {
         thread: r.thread_id ?? "main",
         at: r.created_at,
         message,
-        failed: failed.get(c.id) ?? null,
+        row,
+        responseRow: responses.get(c.id)?.row ?? null,
+        failed: responses.get(c.id)?.failed ?? null,
       });
     }
   }
@@ -112,8 +118,9 @@ export function findRetries(sessionId: string, calls: ToolCall[]): Retry[] {
       if (f.failed !== true) return;
       let r: ToolCall | undefined;
       for (let j = i + 1, seen = 0; j < thread.length && seen < RETRY_WINDOW; j++) {
-        // Calls in the same message were issued before the failure was visible.
-        if (thread[j].message === f.message) continue;
+        // Calls issued before the failure came back (the same message, or a
+        // parallel call that an adapter wrote as its own row) are not retries.
+        if (thread[j].message === f.message || (f.responseRow !== null && thread[j].row < f.responseRow)) continue;
         seen++;
         if (thread[j].tool === f.tool) {
           r = thread[j];
