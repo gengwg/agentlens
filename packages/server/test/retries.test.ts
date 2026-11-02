@@ -1,0 +1,121 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { findRetries, rollupRetries, serverOf, toolCallsOf, type ToolRow } from "../src/retries.ts";
+
+type Call = [id: string, name: string, args: unknown];
+
+const msg = (thread: string | null, ...calls: Call[]): ToolRow => ({
+  type: "model.message",
+  thread_id: thread,
+  created_at: null,
+  calls: JSON.stringify(calls.map(([id, name, args]) => ({ id, function: { name, arguments: args } }))),
+  call_id: null,
+  failed: 0,
+});
+const res = (callId: string, failed: boolean): ToolRow => ({
+  type: "tool.response",
+  thread_id: null,
+  created_at: null,
+  calls: null,
+  call_id: callId,
+  failed: failed ? 1 : 0,
+});
+const retries = (rows: ToolRow[]) => findRetries("s", toolCallsOf(rows));
+
+test("a failed call retried with the same args that then works", () => {
+  const r = retries([
+    msg(null, ["c1", "Bash", '{"cmd":"ls"}']),
+    res("c1", true),
+    msg(null, ["c2", "Bash", '{ "cmd": "ls" }']),
+    res("c2", false),
+  ]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].failedCallId, "c1");
+  assert.equal(r[0].retryCallId, "c2");
+  assert.equal(r[0].sameArgs, true);
+  assert.equal(r[0].recovered, true);
+});
+
+test("other tools in between still count, but only inside the window", () => {
+  const inside = retries([
+    msg(null, ["c1", "Read", "{}"]),
+    res("c1", true),
+    msg(null, ["c2", "Grep", "{}"]),
+    msg(null, ["c3", "Glob", "{}"]),
+    msg(null, ["c4", "Read", "{}"]),
+  ]);
+  assert.deepEqual(inside.map((r) => r.retryCallId), ["c4"]);
+
+  const outside = retries([
+    msg(null, ["c1", "Read", "{}"]),
+    res("c1", true),
+    msg(null, ["c2", "Grep", "{}"]),
+    msg(null, ["c3", "Glob", "{}"]),
+    msg(null, ["c4", "Bash", "{}"]),
+    msg(null, ["c5", "Read", "{}"]),
+  ]);
+  assert.deepEqual(outside, []);
+});
+
+test("a call in the same message as the failure is not its retry", () => {
+  const r = retries([msg(null, ["c1", "Read", "{}"], ["c2", "Read", "{}"]), res("c1", true), res("c2", false)]);
+  assert.deepEqual(r, []);
+});
+
+test("another thread is not a retry", () => {
+  const r = retries([msg("main", ["c1", "Bash", "{}"]), res("c1", true), msg("t1:sub", ["c2", "Bash", "{}"]), res("c2", false)]);
+  assert.deepEqual(r, []);
+});
+
+test("a chain of failures yields one retry per failure", () => {
+  const r = retries([
+    msg(null, ["c1", "Bash", "{}"]),
+    res("c1", true),
+    msg(null, ["c2", "Bash", "{}"]),
+    res("c2", true),
+    msg(null, ["c3", "Bash", "{}"]),
+    res("c3", false),
+  ]);
+  assert.deepEqual(
+    r.map((x) => [x.failedCallId, x.retryCallId, x.recovered]),
+    [
+      ["c1", "c2", false],
+      ["c2", "c3", true],
+    ],
+  );
+});
+
+test("a retry with no response yet is pending", () => {
+  const r = retries([msg(null, ["c1", "Bash", "{}"]), res("c1", true), msg(null, ["c2", "Bash", "{}"])]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].recovered, null);
+});
+
+test("changed arguments are not sameArgs", () => {
+  const r = retries([msg(null, ["c1", "Read", { path: "a" }]), res("c1", true), msg(null, ["c2", "Read", { path: "b" }])]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].sameArgs, false);
+});
+
+test("serverOf reads Claude Code MCP names", () => {
+  assert.equal(serverOf("mcp__kubecon__search_sessions"), "kubecon");
+  assert.equal(serverOf("Bash"), null);
+  assert.equal(serverOf("mcp__x"), null);
+});
+
+test("rollup counts failures, retries and sessions per tool", () => {
+  const a = toolCallsOf([
+    msg(null, ["a1", "Bash", '{"cmd":"x"}']),
+    res("a1", true),
+    msg(null, ["a2", "Bash", '{"cmd":"y"}']),
+    res("a2", false),
+    msg(null, ["a3", "Bash", '{"cmd":"z"}']),
+    res("a3", true),
+  ]);
+  const b = toolCallsOf([msg(null, ["b1", "Bash", '{"cmd":"x"}']), res("b1", true), msg(null, ["b2", "Bash", '{"cmd":"x"}'])]);
+  const stats = rollupRetries([
+    { sessionId: "A", calls: a },
+    { sessionId: "B", calls: b },
+  ]);
+  assert.deepEqual(stats, [{ tool: "Bash", server: null, failures: 3, retried: 2, sameArgs: 1, recovered: 1, sessions: 2 }]);
+});
