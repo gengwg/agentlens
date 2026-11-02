@@ -1,3 +1,5 @@
+import { retryCandidateSessions, sessionToolRows } from "./db.js";
+
 // Agents rarely report a broken tool; they call it again. A failed call followed
 // shortly by another call to the same tool in the same thread is that signal.
 export const RETRY_WINDOW = 3;
@@ -158,4 +160,12 @@ export function rollupRetries(sessions: { sessionId: string; calls: ToolCall[] }
   return [...stats.values()]
     .map(({ seen, ...s }) => ({ ...s, sessions: seen.size }))
     .sort((a, b) => b.retried - a.retried || b.failures - a.failures);
+}
+
+export function sessionRetries(sessionId: string): Retry[] {
+  return findRetries(sessionId, toolCallsOf(sessionToolRows(sessionId)));
+}
+
+export function fleetRetries(since: string): ToolRetryStat[] {
+  return rollupRetries(retryCandidateSessions(since).map((sessionId) => ({ sessionId, calls: toolCallsOf(sessionToolRows(sessionId)) })));
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { findRetries, rollupRetries, serverOf, toolCallsOf, type ToolRow } from "../src/retries.ts";
+import type { ToolRow } from "../src/retries.ts";
+import { findRetries, fleetRetries, rollupRetries, seedSession, serverOf, sessionRetries, toolCallsOf } from "./fixtures.ts";
 
 type Call = [id: string, name: string, args: unknown];
 
@@ -118,4 +119,66 @@ test("rollup counts failures, retries and sessions per tool", () => {
     { sessionId: "B", calls: b },
   ]);
   assert.deepEqual(stats, [{ tool: "Bash", server: null, failures: 3, retried: 2, sameArgs: 1, recovered: 1, sessions: 2 }]);
+});
+
+const call = (id: string, tool: string, args = "{}") => ({ toolCalls: [{ id, function: { name: tool, arguments: args } }] });
+
+test("a declined call is not a failure, so re-asking is not a retry", () => {
+  seedSession("rt-denied", {
+    source: "claude-code",
+    events: [
+      { id: "rtd1", type: "model.message", raw: call("c1", "Bash") },
+      { id: "rtd2", type: "tool.response", raw: { toolCallId: "c1", content: "Permission for this action was denied by the hook", error: true } },
+      { id: "rtd3", type: "model.message", raw: call("c2", "Bash") },
+      { id: "rtd4", type: "tool.response", raw: { toolCallId: "c2", content: "ok" } },
+    ],
+  });
+  assert.deepEqual(sessionRetries("rt-denied"), []);
+});
+
+test("a failed response with no toolCallId is skipped", () => {
+  seedSession("rt-noid", {
+    source: "claude-code",
+    events: [
+      { id: "rtn1", type: "model.message", raw: call("c1", "NoIdTool") },
+      { id: "rtn2", type: "tool.response", raw: { content: "boom", error: true } },
+      { id: "rtn3", type: "tool.response", raw: { toolCallId: "c1", content: "boom", error: true } },
+      { id: "rtn4", type: "model.message", raw: call("c2", "NoIdTool") },
+      { id: "rtn5", type: "tool.response", raw: { toolCallId: "c2", content: "ok" } },
+    ],
+  });
+  const row = fleetRetries("2026-01-01T00:00:00Z").find((s) => s.tool === "NoIdTool");
+  assert.equal(row?.failures, 1);
+  assert.equal(row?.retried, 1);
+});
+
+test("fleetRetries only looks at sessions updated since the cutoff", () => {
+  for (const [id, updated_at] of [
+    ["rt-old", "2026-09-01T00:00:00Z"],
+    ["rt-new", "2026-10-20T00:00:00Z"],
+  ]) {
+    seedSession(id, {
+      source: "claude-code",
+      updated_at,
+      events: [
+        { id: `${id}-1`, type: "model.message", raw: call("c1", "CutoffTool") },
+        { id: `${id}-2`, type: "tool.response", raw: { toolCallId: "c1", content: "boom", error: true } },
+        { id: `${id}-3`, type: "model.message", raw: call("c2", "CutoffTool") },
+      ],
+    });
+  }
+  const row = fleetRetries("2026-10-01T00:00:00Z").find((s) => s.tool === "CutoffTool");
+  assert.equal(row?.sessions, 1);
+});
+
+test("thread_id from the event decides the thread", () => {
+  seedSession("rt-thread", {
+    source: "claude-code",
+    events: [
+      { id: "rtt1", type: "model.message", raw: call("c1", "Bash") },
+      { id: "rtt2", type: "tool.response", raw: { toolCallId: "c1", content: "boom", error: true } },
+      { id: "rtt3", type: "model.message", thread_id: "t1:sub", raw: call("c2", "Bash") },
+    ],
+  });
+  assert.deepEqual(sessionRetries("rt-thread"), []);
 });
