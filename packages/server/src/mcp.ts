@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { agentSummaries, db, sessionSummaries, sessionTrace } from "./db.js";
+import { fleetRetries } from "./retries.js";
 
 // Fixed vocabulary so reports can be compared and counted across investigations.
 export const FAILURE_CODES = {
@@ -65,6 +66,7 @@ export function buildMcp() {
             error: raw.state?.message,
           };
         }),
+        retries: t.retries,
       };
       return { content: [{ type: "text", text: JSON.stringify(compact, null, 1) }] };
     },
@@ -78,6 +80,20 @@ export function buildMcp() {
     },
     async () => ({
       content: [{ type: "text", text: JSON.stringify(agentSummaries(), null, 1) }],
+    }),
+  );
+
+  mcp.registerTool(
+    "list_tool_retries",
+    {
+      description:
+        "Tools that failed and were retried, per tool and MCP server, worst first. sameArgs counts blind retries with identical arguments; recovered counts retries that then worked.",
+      inputSchema: { days: z.number().int().min(1).max(90).default(7) },
+    },
+    async ({ days }) => ({
+      content: [
+        { type: "text", text: JSON.stringify(fleetRetries(new Date(Date.now() - days * 86400e3).toISOString()), null, 1) },
+      ],
     }),
   );
 

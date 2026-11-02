@@ -5,6 +5,7 @@ import { agentSummaries, db, fleetTotals, sessionCount, sessionSource, sessionSu
 import type { SessionQuery } from "./db.js";
 import { closeTurn, ensureSession, openTurn, putEvent, touch } from "./sources/emit.js";
 import { renderMetrics } from "./metrics.js";
+import { fleetRetries } from "./retries.js";
 import { active } from "./sources/index.js";
 import { client, trueforgeOk } from "./sources/trueforge.js";
 
@@ -37,6 +38,11 @@ app.get("/api/sessions", (c) => {
   return c.json({ sessions: sessionSummaries(opts), total: sessionCount(opts) });
 });
 app.get("/api/stats", (c) => c.json(fleetTotals()));
+app.get("/api/retries", (c) => {
+  const n = Math.trunc(Number(c.req.query("days") || 7));
+  const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 90) : 7;
+  return c.json(fleetRetries(new Date(Date.now() - days * 86400e3).toISOString()));
+});
 // For Prometheus to scrape; Grafana draws the charts (README "Send it to Grafana").
 app.get("/metrics", (c) => c.text(renderMetrics(), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" }));
 app.get("/api/sessions/:id", (c) => c.json(sessionTrace(c.req.param("id"))));

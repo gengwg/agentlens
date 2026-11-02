@@ -173,3 +173,32 @@ test("a branch shipped later fills a session that arrived without one", async ()
   const after = (await (await app.request("/api/sessions?q=box/repo2&limit=5")).json()) as any;
   assert.equal(after.sessions[0].branch, "develop");
 });
+
+const retriedFailure = (id: string, tool: string, updated_at?: string) =>
+  seedSession(id, {
+    source: "claude-code",
+    updated_at,
+    events: [
+      { id: `${id}-1`, type: "model.message", raw: { toolCalls: [{ id: "c1", function: { name: tool, arguments: "{}" } }] } },
+      { id: `${id}-2`, type: "tool.response", raw: { toolCallId: "c1", content: "boom", error: true } },
+      { id: `${id}-3`, type: "model.message", raw: { toolCalls: [{ id: "c2", function: { name: tool, arguments: "{}" } }] } },
+      { id: `${id}-4`, type: "tool.response", raw: { toolCallId: "c2", content: "ok" } },
+    ],
+  });
+
+test("GET /api/sessions/:id includes retries", async () => {
+  retriedFailure("s-api-retry", "TraceTool");
+  const body = (await (await app.request("/api/sessions/s-api-retry")).json()) as any;
+  assert.equal(body.retries[0].retryCallId, "c2");
+});
+
+test("GET /api/retries rolls up and defaults to 7 days", async () => {
+  retriedFailure("s-api-fleet", "FleetTool", new Date().toISOString());
+  const res = await app.request("/api/retries");
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as any[];
+  assert.ok(body.some((s) => s.tool === "FleetTool" && s.retried === 1));
+  const bad = await app.request("/api/retries?days=abc");
+  assert.equal(bad.status, 200);
+  assert.deepEqual(await bad.json(), body);
+});

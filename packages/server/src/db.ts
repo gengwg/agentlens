@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { branchOf } from "./git-branch.js";
 import { maskText, redactEventRaw } from "./redact-secrets.js";
-import type { ToolRow } from "./retries.js";
+import { sessionRetries, type ToolRow } from "./retries.js";
 
 export const db = new Database(process.env.AGENTLENS_DB ?? "agentlens.db");
 db.pragma("journal_mode = WAL");
@@ -429,6 +429,7 @@ export function sessionTrace(sessionId: string) {
     session,
     turns,
     events: events.map((e) => ({ ...e, raw: JSON.parse(e.raw) })),
+    retries: sessionRetries(sessionId),
   };
 }
 
