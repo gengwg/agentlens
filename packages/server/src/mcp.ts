@@ -1,9 +1,11 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { agentSummaries, db, sessionSummaries, sessionTrace } from "./db.js";
 import { fleetRetries } from "./retries.js";
+import { ensureSnapshot, investigationById, readSnapshot } from "./investigations.js";
 
 // Fixed vocabulary so reports can be compared and counted across investigations.
 export const FAILURE_CODES = {
@@ -31,9 +33,9 @@ export function buildMcp() {
     async () => {
       // Ranked in SQL rather than filtered on thresholds, so this really is
       // worst first; a session with nothing wrong scores zero and is dropped.
-      const rows = sessionSummaries({ sort: "score", limit: 20 }).filter(
-        (s: any) => s.problem_score > 0,
-      );
+      const rows = sessionSummaries({ sort: "score", limit: 20 })
+        .filter((s: any) => s.problem_score > 0)
+        .map((s: any) => ({ ...s, snapshot_id: ensureSnapshot(String(s.id)).id }));
       return { content: [{ type: "text", text: JSON.stringify(rows, null, 1) }] };
     },
   );
@@ -42,11 +44,15 @@ export function buildMcp() {
     "get_session_trace",
     {
       description:
-        "Full trace for one session: turns with status/duration/errors, and per-event log (model messages, tool calls with args and truncated results, subagent threads).",
-      inputSchema: { session_id: z.string() },
+        "Full trace for one session: turns with status/duration/errors, and per-event log. When list_problem_sessions or the user supplies snapshot_id, pass it to read the pinned sanitized evidence.",
+      inputSchema: { session_id: z.string(), snapshot_id: z.string().min(1).optional() },
     },
-    async ({ session_id }) => {
-      const t = sessionTrace(session_id);
+    async ({ session_id, snapshot_id }) => {
+      const pinned = snapshot_id ? readSnapshot(snapshot_id) : undefined;
+      if (snapshot_id && (!pinned || pinned.session_id !== session_id)) {
+        return { isError: true, content: [{ type: "text", text: "Snapshot not found for this session." }] };
+      }
+      const t = pinned?.snapshot ?? sessionTrace(session_id);
       const compact = {
         session: t.session,
         turns: t.turns,
@@ -101,15 +107,19 @@ export function buildMcp() {
     "export_trace_json",
     {
       description:
-        "Export a session's raw event log as JSON, for deeper analysis in the sandbox (timing histograms, token accounting).",
-      inputSchema: { session_id: z.string() },
+        "Export a session's raw event log as JSON, for deeper analysis in the sandbox. Pass snapshot_id when supplied to export the pinned sanitized evidence.",
+      inputSchema: { session_id: z.string(), snapshot_id: z.string().min(1).optional() },
     },
-    async ({ session_id }) => {
-      const events = db
-        .prepare(`SELECT raw FROM events WHERE session_id = ? ORDER BY created_at IS NULL, created_at, id`)
-        .all(session_id) as { raw: string }[];
+    async ({ session_id, snapshot_id }) => {
+      const pinned = snapshot_id ? readSnapshot(snapshot_id) : undefined;
+      if (snapshot_id && (!pinned || pinned.session_id !== session_id)) {
+        return { isError: true, content: [{ type: "text", text: "Snapshot not found for this session." }] };
+      }
+      const events = pinned
+        ? pinned.snapshot.events.map((e: any) => JSON.stringify(e.raw))
+        : (db.prepare(`SELECT raw FROM events WHERE session_id = ? ORDER BY created_at IS NULL, created_at, id`).all(session_id) as { raw: string }[]).map((e) => e.raw);
       return {
-        content: [{ type: "text", text: `[${events.map((e) => e.raw).join(",")}]` }],
+        content: [{ type: "text", text: `[${events.join(",")}]` }],
       };
     },
   );
@@ -122,16 +132,18 @@ export function buildMcp() {
     {
       description:
         "Publish the final incident report to the AgentLens dashboard. This is a write action and requires human approval. " +
+        "Pass investigation_id when the request supplies one; repeated publication is idempotent. " +
         "codes: one entry per failure seen, naming the session it happened in. " +
         Object.entries(FAILURE_CODES).map(([k, v]) => `${k}: ${v}`).join("; ") + ".",
       inputSchema: {
         title: z.string(),
         body: z.string(),
         codes: z.array(z.object({ session_id: z.string(), code: codeEnum })).min(1),
+        investigation_id: z.string().min(1).optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ title, body, codes }) => {
+    async ({ title, body, codes, investigation_id }) => {
       // Codes are counted per agent through their session, so a made-up id
       // would silently skew those counts.
       const known = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
@@ -139,10 +151,22 @@ export function buildMcp() {
       if (unknown.length) {
         return { isError: true, content: [{ type: "text", text: `Unknown session ids: ${unknown.join(", ")}` }] };
       }
+      if (investigation_id && !investigationById(investigation_id)) {
+        return { isError: true, content: [{ type: "text", text: "Unknown investigation_id." }] };
+      }
+      const canonicalCodes = [...new Set(codes.map((c) => `${c.session_id}\0${c.code}`))].sort();
+      const contentKey = createHash("sha256").update(JSON.stringify({ title, body, codes: canonicalCodes })).digest("hex");
+      const dedupeKey = investigation_id ? `investigation:${investigation_id}` : `content:${contentKey}`;
+      const existing = db.prepare(`SELECT report_id FROM report_keys WHERE dedupe_key = ?`).get(dedupeKey) as { report_id: number } | undefined;
+      if (existing) {
+        return { content: [{ type: "text", text: `Report already published (id ${existing.report_id}).` }] };
+      }
       db.transaction(() => {
         const { lastInsertRowid } = db.prepare(`INSERT INTO reports (title, body) VALUES (?, ?)`).run(title, body);
         const tag = db.prepare(`INSERT OR IGNORE INTO report_codes (report_id, session_id, code) VALUES (?, ?, ?)`);
         for (const c of codes) tag.run(lastInsertRowid, c.session_id, c.code);
+        db.prepare(`INSERT INTO report_keys (dedupe_key, report_id, investigation_id) VALUES (?, ?, ?)`)
+          .run(dedupeKey, lastInsertRowid, investigation_id ?? null);
       })();
       return { content: [{ type: "text", text: "Report published to dashboard." }] };
     },

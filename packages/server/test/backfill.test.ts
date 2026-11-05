@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { db, seedSession } from "./fixtures.ts";
+import { db, ensureSnapshot, readSnapshot, seedSession } from "./fixtures.ts";
 
-const { apply, scan } = await import("../src/backfill.ts");
+const { apply, backfillMain, scan } = await import("../src/backfill.ts");
 const { redactSecrets } = await import("../src/redact-secrets.ts");
 
 // Rows written before masking existed. Inserted straight through SQL, since the
@@ -16,14 +16,16 @@ test("history written before masking is found and masked, once", () => {
     .run("bf-e1", "bf-old", "bf-t1", JSON.stringify({ content: `token is ${key}` }));
   db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`).run(`deploy with ${key}`, "bf-old");
   db.prepare(`UPDATE turns SET error = ? WHERE id = ?`).run(`auth failed for ${key}`, "bf-t1");
+  const snapshot = ensureSnapshot("bf-old");
 
   const found = scan();
-  assert.ok(found.events >= 1 && found.titles >= 1 && found.errors >= 1, JSON.stringify(found));
+  assert.ok(found.events >= 1 && found.titles >= 1 && found.errors >= 1 && found.snapshots >= 1, JSON.stringify(found));
 
   const changed = apply();
   assert.equal(changed.events, found.events);
   assert.equal(changed.titles, found.titles);
   assert.equal(changed.errors, found.errors);
+  assert.equal(changed.snapshots, found.snapshots);
 
   const row = db.prepare(`SELECT raw FROM events WHERE id = ?`).get("bf-e1") as { raw: string };
   const s = db.prepare(`SELECT title FROM sessions WHERE id = ?`).get("bf-old") as { title: string };
@@ -34,11 +36,12 @@ test("history written before masking is found and masked, once", () => {
   }
   assert.ok(row.raw.includes("token is"), "surrounding text survives");
   assert.deepEqual(JSON.parse(row.raw).content, "token is [REDACTED:github-pat]", "still valid JSON");
+  assert.ok(!JSON.stringify(readSnapshot(snapshot.id)).includes(key), "snapshots are masked by the same pass");
 
   // Idempotent: a second pass finds nothing, which is what makes it safe to run
   // over every row rather than tracking which are old.
-  assert.deepEqual(scan(), { events: 0, titles: 0, errors: 0 });
-  assert.deepEqual(apply(), { events: 0, titles: 0, errors: 0 });
+  assert.deepEqual(scan(), { events: 0, titles: 0, errors: 0, snapshots: 0 });
+  assert.deepEqual(apply(), { events: 0, titles: 0, errors: 0, snapshots: 0 });
 });
 
 test("the pass leaves the shipping cursor alone", () => {
@@ -52,4 +55,19 @@ test("the pass leaves the shipping cursor alone", () => {
 
 test("a mask literal is not a secret", () => {
   assert.equal(redactSecrets("[REDACTED:bearer-token] [REDACTED:private-key]"), "[REDACTED:bearer-token] [REDACTED:private-key]");
+});
+
+test("a snapshot-only redaction does not report nothing to do", () => {
+  db.prepare(`INSERT INTO investigation_snapshots (id, session_id, revision, snapshot) VALUES (?, ?, ?, ?)`)
+    .run("bf-snapshot-only", "bf-old", 1, JSON.stringify({ content: key }));
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (line: string) => logs.push(line);
+  try {
+    backfillMain([]);
+  } finally {
+    console.log = original;
+  }
+  assert.ok(logs.some((line) => line.includes("run again with --apply")), logs.join("\n"));
+  assert.ok(!logs.includes("nothing to do"), logs.join("\n"));
 });

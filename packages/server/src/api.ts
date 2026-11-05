@@ -10,6 +10,7 @@ import { MrWatchConflictError } from "./gitlab-watch.js";
 import { fleetRetries } from "./retries.js";
 import { active } from "./sources/index.js";
 import { client, trueforgeOk } from "./sources/trueforge.js";
+import { launchInvestigation } from "./investigations.js";
 
 export const app = new Hono();
 // Local demo tool: only the dashboard (and same-origin/non-browser clients,
@@ -134,20 +135,14 @@ app.get("/api/sessions/:id/turns/:turnId/live", (c) => {
   });
 });
 
-// Kick off the investigator agent on a suspect session.
+// Kick off the investigator agent on a suspect session, or reuse the launch
+// already made for that session/fleet revision.
 app.post("/api/investigate", async (c) => {
   if (!trueforgeOk()) return c.json({ error: "TrueForge not reachable" }, 503);
   const { session_id } = await c.req.json().catch(() => ({}) as any);
-  const { data: session } = await client.sessions.create({
-    agent: { name: "investigator" },
-  });
-  const prompt = session_id
-    ? `Investigate session ${session_id}. Use get_session_trace first, then publish an incident report.`
-    : "Triage the fleet: call list_problem_sessions, investigate the worst offenders in parallel with subagents, then produce one incident report.";
-  const { data: turn } = await client.sessions.createTurn(session.id, {
-    input: [{ type: "user.message", content: prompt }],
-  });
-  return c.json({ session_id: session.id, turn_id: turn.id });
+  if (session_id && !sessionSource.get(session_id)) return c.json({ error: "session not found" }, 404);
+  const result = await launchInvestigation(session_id ? "session" : "fleet", session_id || undefined, client);
+  return c.json(result);
 });
 
 // Approve or deny the investigator's pending tool call (human-in-the-loop gate).

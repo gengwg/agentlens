@@ -766,3 +766,25 @@ ownership conflicts, and natural or forced termination racing an explicit
 re-check. Every registration now supersedes the prior watch generation, so an
 older loop cannot overwrite a newer result or disappear without starting its
 waiting replacement.
+
+## 2026-11-05 - Repeatable investigations
+
+Investigation clicks used to create a fresh TrueForge session every time, while
+trace tools read whatever the live database contained when the model called
+them. That made retries expensive and let an in-place event update change the
+evidence halfway through an investigation. Launches are now keyed by session or
+fleet event revision and persist their TrueForge session and turn ids. Repeated
+clicks reuse that launch; a new revision starts a new one. Each suspect trace is
+stored as a secret-masked snapshot, and trace/export tools accept its snapshot
+id, so parallel subagents all read the same evidence. Publication accepts the
+investigation id and returns the existing report on retry; legacy calls without
+one deduplicate identical content.
+
+The surprising part was that `MAX(events.seq)` alone was not enough. OpenCode
+updates event rows in place and bumps their sequence, so filtering a live trace
+by the old sequence drops the updated row instead of recovering its old text.
+Persisting the projection is what makes the snapshot real. Verification covers
+that mutation, concurrent launch deduplication, fleet revision advancement,
+turn-failure recovery on the same root session, snapshot-aware MCP reads, and
+idempotent publication, alongside the existing server suite and production
+build.
