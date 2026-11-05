@@ -177,8 +177,8 @@ export function rollupRetries(sessions: { sessionId: string; calls: ToolCall[] }
     .sort((a, b) => b.sameArgs - a.sameArgs || b.retried - a.retried || b.failures - a.failures);
 }
 
-export function sessionRetries(sessionId: string): Retry[] {
-  return findRetries(sessionId, toolCallsOf(sessionToolRows(sessionId)));
+export function sessionRetries(sessionId: string, throughSeq?: number): Retry[] {
+  return findRetries(sessionId, toolCallsOf(sessionToolRows(sessionId, throughSeq)));
 }
 
 export function fleetRetries(since: string): ToolRetryStat[] {

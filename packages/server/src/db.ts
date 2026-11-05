@@ -54,6 +54,27 @@ CREATE TABLE IF NOT EXISTS report_codes (
   code TEXT NOT NULL,
   PRIMARY KEY (report_id, session_id, code)
 );
+CREATE TABLE IF NOT EXISTS investigations (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  target_session_id TEXT,
+  revision INTEGER NOT NULL,
+  trueforge_session_id TEXT,
+  trueforge_turn_id TEXT,
+  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE TABLE IF NOT EXISTS investigation_snapshots (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  snapshot TEXT NOT NULL,
+  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE TABLE IF NOT EXISTS report_keys (
+  dedupe_key TEXT PRIMARY KEY,
+  report_id INTEGER NOT NULL REFERENCES reports(id),
+  investigation_id TEXT
+);
 CREATE TABLE IF NOT EXISTS model_prices (
   model TEXT PRIMARY KEY,
   input REAL, output REAL, cache_read REAL, cache_write REAL
@@ -479,28 +500,30 @@ export function fleetMetrics() {
   };
 }
 
-export function sessionTrace(sessionId: string) {
+export function sessionTrace(sessionId: string, throughSeq?: number) {
   const session = db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
   const turns = db
     .prepare(`SELECT * FROM turns WHERE session_id = ? ORDER BY created_at`)
     .all(sessionId);
-  const events = db
-    // Order by created_at like the ingest fetch, id as tie-breaker (ids are
-    // time-sortable ULIDs today, but that is not part of the API contract).
-    // Untimestamped events sort last instead of jumping to the front.
-    .prepare(`SELECT id, turn_id, thread_id, type, created_at, raw FROM events WHERE session_id = ? ORDER BY created_at IS NULL, created_at, id`)
-    .all(sessionId) as { id: string; turn_id: string; thread_id: string | null; type: string; created_at: string | null; raw: string }[];
+  const events = (throughSeq === undefined
+    ? db.prepare(`SELECT id, turn_id, thread_id, type, created_at, raw FROM events WHERE session_id = ? ORDER BY created_at IS NULL, created_at, id`).all(sessionId)
+    : db.prepare(`SELECT id, turn_id, thread_id, type, created_at, raw FROM events WHERE session_id = ? AND seq <= ? ORDER BY created_at IS NULL, created_at, id`).all(sessionId, throughSeq)) as { id: string; turn_id: string; thread_id: string | null; type: string; created_at: string | null; raw: string }[];
+  // Order by created_at like the ingest fetch, id as tie-breaker (ids are
+  // time-sortable ULIDs today, but that is not part of the API contract).
+  // Untimestamped events sort last instead of jumping to the front.
   return {
     session,
     turns,
     events: events.map((e) => ({ ...e, raw: JSON.parse(e.raw) })),
-    retries: sessionRetries(sessionId),
+    retries: sessionRetries(sessionId, throughSeq),
   };
 }
 
 // Selects only the fields retry detection needs, so large tool output is never
 // parsed, and computes failure with TOOL_ERROR so it matches the rest of the UI.
-export function sessionToolRows(sessionId: string): ToolRow[] {
+export function sessionToolRows(sessionId: string, throughSeq?: number): ToolRow[] {
+  const revision = throughSeq === undefined ? "" : " AND e.seq <= ?";
+  const params = throughSeq === undefined ? [sessionId] : [sessionId, throughSeq];
   return db
     .prepare(
       `SELECT e.type, e.thread_id, e.created_at,
@@ -509,10 +532,10 @@ export function sessionToolRows(sessionId: string): ToolRow[] {
         CASE WHEN ${TOOL_ERROR} THEN 1 ELSE 0 END AS failed,
         CASE WHEN e.type = 'tool.response' AND ${DENIED} THEN 1 ELSE 0 END AS declined
       FROM events e JOIN sessions s ON s.id = e.session_id
-      WHERE e.session_id = ? AND e.type IN ('model.message', 'tool.response')
+      WHERE e.session_id = ? AND e.type IN ('model.message', 'tool.response')${revision}
       ORDER BY e.created_at IS NULL, e.created_at, e.id`,
     )
-    .all(sessionId) as ToolRow[];
+    .all(...params) as ToolRow[];
 }
 
 export function retryCandidateSessions(since: string): string[] {

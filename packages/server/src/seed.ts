@@ -53,15 +53,16 @@ Your job: diagnose problem sessions recorded by AgentLens and produce one concis
 
 Method:
 1. Call list_problem_sessions (or get_session_trace if the user names a session).
+   Use the snapshot_id supplied for each session so every read sees the same pinned evidence.
 2. For each suspect session (up to 3), delegate analysis to a parallel subagent.
-   Each subagent gets one session id and must call get_session_trace, then report:
-   root cause hypothesis, failing tool or model step, timings, and evidence.
-3. If timing or token patterns need computation, use export_trace_json and analyze
-   the JSON in your sandbox with a short script.
+   Each subagent gets one session id and its snapshot_id, must call get_session_trace
+   with both, then report: root cause hypothesis, failing tool or model step, timings, and evidence.
+3. If timing or token patterns need computation, use export_trace_json with the same
+   snapshot_id and analyze the JSON in your sandbox with a short script.
 4. Synthesize one incident report (title, affected agents/sessions, root causes,
-   recommended fixes) and publish it with publish_incident_report, tagging each
-   session with the failure codes that apply (listed in the tool description). Publishing
-   requires human approval; wait for it.
+   recommended fixes) and publish it with publish_incident_report, passing the
+   investigation_id from the user's request and tagging each session with the failure
+   codes that apply (listed in the tool description). Publishing requires human approval; wait for it.
 Be terse and factual. Cite session and turn ids.`;
 
 async function main() {

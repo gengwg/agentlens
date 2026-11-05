@@ -119,7 +119,7 @@ export const api = {
   agents: (): Promise<any[]> => fetch("/api/agents").then(json),
   reports: (): Promise<Report[]> => fetch("/api/reports").then(json),
   sources: (): Promise<SourceStatus[]> => fetch("/api/sources").then(json),
-  investigate: (sessionId?: string): Promise<{ session_id: string; turn_id: string }> =>
+  investigate: (sessionId?: string): Promise<{ session_id: string; turn_id: string; investigation_id: string; snapshot_id?: string; deduplicated: boolean }> =>
     fetch("/api/investigate", {
       method: "POST",
       headers: { "content-type": "application/json" },

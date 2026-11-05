@@ -4,7 +4,8 @@ import { maskText, redactSecrets } from "./redact-secrets.js";
 
 // Masking guards writes, so anything stored before it existed is still in the
 // clear: event bodies from before v0.10.0, session titles and turn errors from
-// before v0.12.4. This walks the store once and masks what is left.
+// before v0.12.4, and investigation snapshots containing those same fields.
+// This walks the store once and masks what is left.
 //
 // Safe to run over everything, repeatedly: masking is idempotent. A mask
 // literal contains no pattern, so an already-masked row comes back byte for
@@ -14,27 +15,30 @@ import { maskText, redactSecrets } from "./redact-secrets.js";
 //   agentlens redact-history            what would change
 //   agentlens redact-history --apply    change it, after copying the database
 
-type Change = { events: number; titles: number; errors: number };
+type Change = { events: number; titles: number; errors: number; snapshots: number };
 
 export function scan(): Change {
-  const counts: Change = { events: 0, titles: 0, errors: 0 };
+  const counts: Change = { events: 0, titles: 0, errors: 0, snapshots: 0 };
   for (const { raw } of db.prepare(`SELECT raw FROM events`).iterate() as Iterable<{ raw: string }>)
     if (redactSecrets(raw) !== raw) counts.events++;
   for (const { title } of db.prepare(`SELECT title FROM sessions WHERE title IS NOT NULL`).iterate() as Iterable<{ title: string }>)
     if (maskText(title) !== title) counts.titles++;
   for (const { error } of db.prepare(`SELECT error FROM turns WHERE error IS NOT NULL`).iterate() as Iterable<{ error: string }>)
     if (maskText(error) !== error) counts.errors++;
+  for (const { snapshot } of db.prepare(`SELECT snapshot FROM investigation_snapshots`).iterate() as Iterable<{ snapshot: string }>)
+    if (redactSecrets(snapshot) !== snapshot) counts.snapshots++;
   return counts;
 }
 
 export function apply(): Change {
-  const counts: Change = { events: 0, titles: 0, errors: 0 };
+  const counts: Change = { events: 0, titles: 0, errors: 0, snapshots: 0 };
   // seq is left alone on purpose: a shipper has already sent these events with
   // their content stripped, so there is nothing for the shared server to catch
   // up on, and bumping it would resend tens of thousands of rows for nothing.
   const setRaw = db.prepare(`UPDATE events SET raw = ? WHERE id = ?`);
   const setTitle = db.prepare(`UPDATE sessions SET title = ? WHERE id = ?`);
   const setError = db.prepare(`UPDATE turns SET error = ? WHERE id = ?`);
+  const setSnapshot = db.prepare(`UPDATE investigation_snapshots SET snapshot = ? WHERE id = ?`);
 
   db.transaction(() => {
     for (const { id, raw } of db.prepare(`SELECT id, raw FROM events`).all() as { id: string; raw: string }[]) {
@@ -49,18 +53,22 @@ export function apply(): Change {
       const masked = maskText(error);
       if (masked !== error) (setError.run(masked, id), counts.errors++);
     }
+    for (const { id, snapshot } of db.prepare(`SELECT id, snapshot FROM investigation_snapshots`).all() as { id: string; snapshot: string }[]) {
+      const masked = redactSecrets(snapshot);
+      if (masked !== snapshot) (setSnapshot.run(masked, id), counts.snapshots++);
+    }
   })();
   return counts;
 }
 
-const describe = (c: Change) => `${c.events} events, ${c.titles} titles, ${c.errors} turn errors`;
+const describe = (c: Change) => `${c.events} events, ${c.titles} titles, ${c.errors} turn errors, ${c.snapshots} snapshots`;
 
 export function backfillMain(argv: string[]) {
   const path = process.env.AGENTLENS_DB ?? "agentlens.db";
   if (!argv.includes("--apply")) {
     const found = scan();
     console.log(`${path}: ${describe(found)} hold something the masker would remove`);
-    console.log(found.events + found.titles + found.errors ? "run again with --apply to mask them" : "nothing to do");
+    console.log(found.events + found.titles + found.errors + found.snapshots ? "run again with --apply to mask them" : "nothing to do");
     return;
   }
   // The store is the only copy of this history; keep one before rewriting it.
