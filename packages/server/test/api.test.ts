@@ -9,6 +9,8 @@ test("GET /api/sessions returns the rollup", async () => {
   const body = await res.json();
   assert.equal(body.sessions[0].id, "s-api");
   assert.equal(body.sessions[0].error_turns, 1);
+  assert.equal(body.sessions[0].coding_state, "blocked");
+  assert.equal(body.sessions[0].mr, null);
   assert.equal(body.total, body.sessions.length);
 });
 
@@ -87,6 +89,24 @@ test("GET /api/sources lists configured sources", async () => {
   const res = await app.request("/api/sources");
   assert.equal(res.status, 200);
   assert.ok(Array.isArray(await res.json()));
+});
+
+test("POST /api/mr-watches validates local registration before calling GitLab", async () => {
+  seedSession("s-mr-api");
+  const post = (body: unknown) => app.request("/api/mr-watches", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal((await post({})).status, 400);
+  assert.equal((await post({ session_id: "s-mr-api", project: "not a path", mr_iid: 1 })).status, 400);
+  assert.equal((await post({ session_id: "s-mr-api", project: "group/project", mr_iid: 0 })).status, 400);
+  assert.equal((await post({ session_id: "missing", project: "group/project", mr_iid: 1 })).status, 404);
+
+  const existingId = "x".repeat(300);
+  seedSession(existingId);
+  assert.equal((await post({ session_id: `${existingId}y`, project: "group/project", mr_iid: 1 })).status, 404,
+    "long session ids are checked exactly, never truncated to another session");
 });
 
 test("TrueForge-only routes refuse when TrueForge is not connected", async () => {

@@ -7,7 +7,8 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { app } from "./api.js";
 import { backfillMain } from "./backfill.js";
 import { startCollector } from "./collector.js";
-import { refreshPrices } from "./db.js";
+import { activeMrWatches, refreshPrices } from "./db.js";
+import { gitlabWatcher } from "./mr-watcher.js";
 import { loadPrices, priceFor } from "./prices.js";
 import { startMcpServer } from "./mcp.js";
 import { shipMain } from "./ship.js";
@@ -16,6 +17,7 @@ import { detectSources } from "./sources/index.js";
 function serveMain() {
   const port = Number(process.env.PORT ?? 8788);
   startCollector(detectSources());
+  gitlabWatcher.resume(activeMrWatches());
   // Pricing is a bonus: fetched in the background, and every failure is a log
   // line rather than a broken start. Refreshed hourly so models seen after
   // boot get priced too.

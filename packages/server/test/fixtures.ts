@@ -14,6 +14,8 @@ export const {
   setCursor,
   sweepStaleTurns,
   refreshPrices,
+  saveMrWatch,
+  mrWatchesForSessions,
 } = await import("../src/db.ts");
 export const { RETRY_WINDOW, toolCallsOf, findRetries, serverOf, rollupRetries, sessionRetries, fleetRetries } = await import("../src/retries.ts");
 export const { app } = await import("../src/api.ts");

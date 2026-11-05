@@ -79,6 +79,23 @@ tbody tr.clickable:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
 .dot.done { background: var(--green); }
+.dot.active { background: var(--accent); animation: pulse 1.2s infinite; }
+.dot.waiting { background: var(--orange); animation: pulse 1.2s infinite; }
+.dot.blocked { background: var(--red); }
+.dot.stale { background: var(--orange); }
+.dot.unknown { background: var(--dim); }
+.stateText { margin-left: 6px; font-size: 11px; color: var(--dim); }
+.stateText.blocked { color: var(--red); }
+.stateText.waiting, .stateText.stale { color: var(--orange); }
+.stateText.active { color: var(--accent); }
+.watchMr { display: block; margin-top: 4px; padding: 1px 6px; font-size: 10px; color: var(--dim); }
+.mrLine { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.badge.mr { border: 1px solid var(--border); border-radius: 8px; padding: 0 5px; font-size: 10px; text-decoration: none; color: var(--dim); }
+.badge.mr.waiting { color: var(--accent); border-color: var(--accent); }
+.badge.mr.ready, .badge.mr.done { color: var(--green); border-color: var(--green); }
+.badge.mr.blocked { color: var(--red); border-color: var(--red); }
+.badge.mr.stale { color: var(--orange); border-color: var(--orange); }
+.mrSha { color: var(--dim); font-size: 10px; }
 .dot.error { background: var(--red); }
 .dot.running { background: var(--accent); animation: pulse 1.2s infinite; }
 .dot.approval { background: var(--orange); animation: pulse 1.2s infinite; }

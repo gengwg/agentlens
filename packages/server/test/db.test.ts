@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { agentSummaries, db, seedSession, sessionSummaries, sessionTrace, sweepStaleTurns, upsertEvent } from "./fixtures.ts";
+import { agentSummaries, db, mrWatchesForSessions, saveMrWatch, seedSession, sessionSummaries, sessionTrace, sweepStaleTurns, upsertEvent } from "./fixtures.ts";
 
 const summary = (id: string) => sessionSummaries().find((s) => s.id === id)!;
 
@@ -285,4 +285,84 @@ test("problem_score counts a stall, and ignores a declined tool", () => {
     events: [{ id: "sde1", turn_id: "sd1", type: "tool.response", raw: { content: "The user doesn't want to proceed with this tool use.", error: true } }],
   });
   assert.equal(summary("s-declined").problem_score, 0, "declining a tool is a choice, not a fault");
+});
+
+test("coding state uses the newest turn, current approvals and recent activity", () => {
+  seedSession("s-state-active", {
+    updated_at: new Date().toISOString(),
+    turns: [{ id: "state-a", status: "running" }],
+  });
+  assert.equal(summary("s-state-active").coding_state, "active");
+
+  seedSession("s-state-waiting", {
+    turns: [{ id: "state-w", status: "done", pending_actions: 1 }],
+  });
+  assert.equal(summary("s-state-waiting").coding_state, "waiting");
+  assert.equal(summary("s-state-waiting").state_reason, "approval");
+
+  seedSession("s-state-blocked", {
+    turns: [
+      { id: "state-b1", status: "done", created_at: "2026-09-01T00:00:00Z" },
+      { id: "state-b2", status: "error", created_at: "2026-09-01T00:01:00Z" },
+    ],
+  });
+  assert.equal(summary("s-state-blocked").coding_state, "blocked");
+
+  seedSession("s-state-recovered", {
+    turns: [
+      { id: "state-r1", status: "error", created_at: "2026-09-01T00:00:00Z" },
+      { id: "state-r2", status: "done", created_at: "2026-09-01T00:01:00Z" },
+    ],
+  });
+  assert.equal(summary("s-state-recovered").coding_state, "done");
+  assert.equal(summary("s-state-recovered").error_turns, 1, "history remains visible separately");
+
+  seedSession("s-state-stale", {
+    updated_at: "2026-09-01T00:00:00Z",
+    turns: [{ id: "state-s", status: "running" }],
+  });
+  assert.equal(summary("s-state-stale").coding_state, "stale");
+
+  seedSession("s-state-empty");
+  assert.equal(summary("s-state-empty").coding_state, "unknown");
+});
+
+test("the latest MR registration wins even when an older head updates later", () => {
+  seedSession("s-mr-latest");
+  const base = {
+    session_id: "s-mr-latest",
+    project: "group/project",
+    mr_iid: 7,
+    state: "waiting" as const,
+    pipeline_status: "running",
+    web_url: "https://gitlab.example/group/project/-/merge_requests/7",
+    detail: null,
+    last_checked_at: "2026-11-04T00:00:00Z",
+  };
+  saveMrWatch({ ...base, head_sha: "old", created_at: "2026-11-04T00:00:00Z" });
+  saveMrWatch({ ...base, head_sha: "new", created_at: "2026-11-04T00:01:00Z" });
+  saveMrWatch({ ...base, head_sha: "old", created_at: "2026-11-04T00:00:00Z", last_checked_at: "2026-11-04T00:02:00Z" });
+  assert.equal((summary("s-mr-latest").mr as any).head_sha, "new");
+  assert.equal(mrWatchesForSessions(["s-mr-latest"]).get("s-mr-latest")!.head_sha, "new");
+  assert.equal("rn" in (summary("s-mr-latest").mr as any), false);
+});
+
+test("an explicit re-check moves that MR to the front; a background update does not", () => {
+  seedSession("s-mr-recheck");
+  const base = {
+    session_id: "s-mr-recheck",
+    project: "group/project",
+    state: "waiting" as const,
+    pipeline_status: "running",
+    web_url: null,
+    detail: null,
+    last_checked_at: "2026-11-04T00:00:00Z",
+  };
+  saveMrWatch({ ...base, mr_iid: 1, head_sha: "one", created_at: "2026-11-04T00:00:00Z" }, true);
+  saveMrWatch({ ...base, mr_iid: 2, head_sha: "two", created_at: "2026-11-04T00:01:00Z" }, true);
+  saveMrWatch({ ...base, mr_iid: 1, head_sha: "one", created_at: "2026-11-04T00:00:00Z", last_checked_at: "2026-11-04T00:02:00Z" });
+  assert.equal((summary("s-mr-recheck").mr as any).mr_iid, 2);
+
+  saveMrWatch({ ...base, mr_iid: 1, head_sha: "one", created_at: "2026-11-04T00:03:00Z" }, true);
+  assert.equal((summary("s-mr-recheck").mr as any).mr_iid, 1);
 });
