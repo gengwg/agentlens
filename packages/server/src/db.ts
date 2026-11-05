@@ -1,5 +1,7 @@
 import Database from "better-sqlite3";
 import { branchOf } from "./git-branch.js";
+import { codingStateFor } from "./coding-state.js";
+import type { MrWatchRecord } from "./gitlab-watch.js";
 import { maskText, redactEventRaw } from "./redact-secrets.js";
 import { sessionRetries, type ToolRow } from "./retries.js";
 
@@ -56,6 +58,20 @@ CREATE TABLE IF NOT EXISTS model_prices (
   model TEXT PRIMARY KEY,
   input REAL, output REAL, cache_read REAL, cache_write REAL
 );
+CREATE TABLE IF NOT EXISTS mr_watches (
+  project TEXT NOT NULL,
+  mr_iid INTEGER NOT NULL,
+  head_sha TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  pipeline_status TEXT,
+  web_url TEXT,
+  detail TEXT,
+  created_at TEXT NOT NULL,
+  last_checked_at TEXT NOT NULL,
+  PRIMARY KEY (project, mr_iid, head_sha)
+);
+CREATE INDEX IF NOT EXISTS idx_mr_watches_session ON mr_watches(session_id, created_at);
 CREATE TABLE IF NOT EXISTS cursors (
   source TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -127,6 +143,46 @@ export function getCursor<T>(source: string, key: string): T | undefined {
 }
 export function setCursor(source: string, key: string, state: unknown) {
   setCursorStmt.run(source, key, JSON.stringify(state));
+}
+
+const saveMrWatchStmt = db.prepare(`
+  INSERT INTO mr_watches (
+    project, mr_iid, head_sha, session_id, state, pipeline_status, web_url, detail, created_at, last_checked_at
+  ) VALUES (
+    @project, @mr_iid, @head_sha, @session_id, @state, @pipeline_status, @web_url, @detail, @created_at, @last_checked_at
+  )
+  ON CONFLICT(project, mr_iid, head_sha) DO UPDATE SET
+    state=excluded.state,
+    pipeline_status=excluded.pipeline_status,
+    web_url=COALESCE(excluded.web_url, mr_watches.web_url),
+    detail=excluded.detail,
+    created_at=CASE WHEN @registration = 1 THEN excluded.created_at ELSE mr_watches.created_at END,
+    last_checked_at=excluded.last_checked_at
+`);
+
+export function saveMrWatch(watch: MrWatchRecord, registration = false) {
+  saveMrWatchStmt.run({ ...watch, registration: registration ? 1 : 0, web_url: maskText(watch.web_url), detail: maskText(watch.detail) });
+}
+
+export function mrWatchOwner(project: string, iid: number, headSha: string) {
+  return (db.prepare(`SELECT session_id FROM mr_watches WHERE project = ? AND mr_iid = ? AND head_sha = ?`)
+    .get(project, iid, headSha) as { session_id: string } | undefined)?.session_id;
+}
+
+export function activeMrWatches(): MrWatchRecord[] {
+  return db.prepare(`SELECT * FROM mr_watches WHERE state = 'waiting'`).all() as MrWatchRecord[];
+}
+
+export function mrWatchesForSessions(sessionIds: string[]) {
+  if (sessionIds.length === 0) return new Map<string, MrWatchRecord>();
+  const placeholders = sessionIds.map(() => "?").join(",");
+  const rows = db.prepare(`
+    SELECT project, mr_iid, head_sha, session_id, state, pipeline_status, web_url, detail, created_at, last_checked_at FROM (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at DESC, rowid DESC) AS rn
+      FROM mr_watches WHERE session_id IN (${placeholders})
+    ) WHERE rn = 1
+  `).all(...sessionIds) as MrWatchRecord[];
+  return new Map(rows.map((row) => [row.session_id, row]));
 }
 
 // Newest turn that had started by `iso`; used to attach subagent events to
@@ -309,15 +365,16 @@ const TOKENS_IN = `COALESCE(json_extract(e.raw,'$.usage.inputTokens'),0)
   + COALESCE(json_extract(e.raw,'$.usage.cacheWriteTokens'),0)`;
 
 // Per-session rollup: turn counts/status, duration, tokens, tool calls.
-export function sessionSummaries(opts: SessionQuery = {}) {
+export function sessionSummaries(opts: SessionQuery = {}): Record<string, unknown>[] {
   const w = where(opts);
-  return db
+  const rows = db
     .prepare(
       `
     SELECT s.*,
       (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count,
       (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.status = 'error') AS error_turns,
       (SELECT MAX(t.status='running') FROM turns t WHERE t.session_id = s.id) AS running,
+      (SELECT t.status FROM turns t WHERE t.session_id = s.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS latest_turn_status,
       -- A turn paused on approval reports status 'done'; only the newest turn's
       -- pending actions are still actionable (a resolution creates a new turn).
       (SELECT t.pending_actions FROM turns t WHERE t.session_id = s.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS pending_approvals,
@@ -342,6 +399,12 @@ export function sessionSummaries(opts: SessionQuery = {}) {
   `,
     )
     .all({ like: w.like, ...(opts.limit ? { limit: opts.limit } : {}) }) as Record<string, unknown>[];
+  const watches = mrWatchesForSessions(rows.map((row) => String(row.id)));
+  return rows.map<Record<string, unknown>>((row) => ({
+    ...row,
+    ...codingStateFor(row),
+    mr: watches.get(String(row.id)) ?? null,
+  }));
 }
 
 // The header stats cover the whole fleet, so they are aggregates rather than a

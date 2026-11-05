@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 import {
   api,
   type FleetTotals,
+  type MrWatch,
   type Report,
   type Retry,
   type SessionSummary,
@@ -59,6 +60,24 @@ export type Filter = "errors" | "toolErrors" | "approval" | null;
 
 function StatusDot({ status }: { status: string }) {
   return <span className={`dot ${status}`} title={status} />;
+}
+
+function MrBadge({ mr }: { mr: MrWatch }) {
+  const title = `${mr.detail ?? mr.state}; head ${mr.head_sha.slice(0, 12)}; checked ${fmtTime(mr.last_checked_at)}`;
+  const label = `!${mr.mr_iid} ${mr.state}`;
+  const stop = (e: SyntheticEvent) => e.stopPropagation();
+  return (
+    <div className="mrLine" title={title}>
+      {mr.web_url ? (
+        <a className={`badge mr ${mr.state}`} href={mr.web_url} target="_blank" rel="noreferrer" onClick={stop} onKeyDown={stop}>
+          {label}
+        </a>
+      ) : (
+        <span className={`badge mr ${mr.state}`}>{label}</span>
+      )}
+      <span className="mrSha">{mr.head_sha.slice(0, 8)}</span>
+    </div>
+  );
 }
 
 export function App() {
@@ -142,6 +161,25 @@ export function App() {
     }
   };
 
+  const watchMr = async (session: SessionSummary) => {
+    const project = prompt("GitLab project path (group/project)", session.mr?.project ?? "");
+    if (!project) return;
+    const rawIid = prompt("Merge request IID", session.mr ? String(session.mr.mr_iid) : "");
+    if (!rawIid) return;
+    const mrIid = Number(rawIid);
+    if (!Number.isInteger(mrIid) || mrIid <= 0) {
+      setError("MR IID must be a positive integer");
+      return;
+    }
+    setError(null);
+    try {
+      await api.watchMr(session.id, project, mrIid);
+      refresh();
+    } catch {
+      setError("Failed to watch MR - check the project, IID and glab authentication");
+    }
+  };
+
   // The investigator is a TrueForge agent; without TrueForge it cannot run.
   const tfOk = sources.some((s) => s.name === "trueforge" && s.ok);
 
@@ -214,6 +252,7 @@ export function App() {
             <SessionTable
               sessions={sessions}
               onSelect={setSelected}
+              onWatch={watchMr}
               q={q}
               setQ={setQ}
               matched={matched}
@@ -268,6 +307,7 @@ function Stat({
 function SessionTable({
   sessions: rows,
   onSelect,
+  onWatch,
   q,
   setQ,
   matched,
@@ -278,6 +318,7 @@ function SessionTable({
 }: {
   sessions: SessionSummary[];
   onSelect: (id: string) => void;
+  onWatch: (session: SessionSummary) => void;
   q: string;
   setQ: (q: string) => void;
   matched: number;
@@ -309,7 +350,7 @@ function SessionTable({
       <table>
         <thead>
           <tr>
-            <th />
+            <th>State</th>
             <th>Source</th>
             <th>Agent</th>
             <th>Title</th>
@@ -337,18 +378,9 @@ function SessionTable({
                 }
               }}
             >
-              <td>
-                <StatusDot
-                  status={
-                    s.running
-                      ? "running"
-                      : s.pending_approvals > 0
-                        ? "approval"
-                        : s.error_turns > 0
-                          ? "error"
-                          : "done"
-                  }
-                />
+              <td className="stateCell" title={s.state_reason ?? s.coding_state}>
+                <StatusDot status={s.coding_state} />
+                <span className={`stateText ${s.coding_state}`}>{s.coding_state}</span>
               </td>
               <td>
                 <span className="badge source">{s.source}</span>
@@ -361,6 +393,16 @@ function SessionTable({
                   <span className="repo">{s.agent_name}</span>
                   {s.branch && <span className="branch">{s.branch}</span>}
                 </div>
+                <button
+                  className="watchMr"
+                  onKeyDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onWatch(s);
+                  }}
+                >
+                  {s.mr ? "re-check MR" : "watch MR"}
+                </button>
               </td>
               <td className="dim">
                 {/* Shipped sessions arrive without a title (it is prompt text
@@ -368,6 +410,7 @@ function SessionTable({
                 <div className={s.title ? "title" : "title dim"} title={s.title ?? s.id}>
                   {s.title ?? s.id.split(":").pop()!.slice(0, 18)}
                 </div>
+                {s.mr && <MrBadge mr={s.mr} />}
               </td>
               <td>{s.turn_count}</td>
               <td>

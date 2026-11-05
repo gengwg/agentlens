@@ -1,3 +1,17 @@
+export type CodingState = "active" | "waiting" | "blocked" | "done" | "stale" | "unknown";
+export type MrWatch = {
+  session_id: string;
+  project: string;
+  mr_iid: number;
+  head_sha: string;
+  state: "waiting" | "ready" | "blocked" | "done" | "stale";
+  pipeline_status: string | null;
+  web_url: string | null;
+  detail: string | null;
+  created_at: string;
+  last_checked_at: string;
+};
+
 export type SessionSummary = {
   id: string;
   source: string;
@@ -20,6 +34,9 @@ export type SessionSummary = {
   total_seconds: number | null;
   reported_cost_usd: number | null;
   estimated_cost_usd: number | null;
+  coding_state: CodingState;
+  state_reason: string | null;
+  mr: MrWatch | null;
 };
 
 export type TraceEvent = {
@@ -91,6 +108,12 @@ export const api = {
     return fetch(`/api/sessions?${p}`).then(json);
   },
   stats: (): Promise<FleetTotals> => fetch("/api/stats").then(json),
+  watchMr: (sessionId: string, project: string, mrIid: number): Promise<MrWatch> =>
+    fetch("/api/mr-watches", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, project, mr_iid: mrIid }),
+    }).then(json),
   retries: (days = 7): Promise<ToolRetryStat[]> => fetch(`/api/retries?days=${days}`).then(json),
   trace: (id: string): Promise<Trace> => fetch(`/api/sessions/${id}`).then(json),
   agents: (): Promise<any[]> => fetch("/api/agents").then(json),

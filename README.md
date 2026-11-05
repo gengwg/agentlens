@@ -21,6 +21,8 @@ they show the layout without anyone's transcripts.
   other harness can post the same JSON to the ingest API.
 - Dashboard with a fleet overview and a per-session trace view: timeline of
   input/model/tool activity plus a turn-by-turn transcript with durations.
+  Fleet rows also derive current coding state from the newest turn and recent
+  activity, and can carry a read-only GitLab MR watch.
   "Failed turns" counts sessions whose turn ended in an error; "tool errors"
   counts sessions where a tool call failed. A tool the user declined is a
   choice, not a failure, and counts as neither.
@@ -144,6 +146,43 @@ Claude Code and dsh transcripts are tailed with per-file cursors (subagent
 transcripts become threads); OpenCode is polled read-only from its SQLite
 database (child sessions become threads); Gemini and Roo files are re-read when
 they change. A turn left running by a killed process is closed after 30 minutes.
+
+### Coding state and GitLab MR watches
+
+Fleet rows show `active`, `waiting`, `blocked`, `done`, `stale`, or `unknown`
+from the newest turn, current approval state, and recent harness activity. A
+historical failure does not mark a recovered session as blocked. A running turn
+with no activity for 15 minutes is stale; the existing 30-minute stale-turn
+sweep still applies separately.
+
+Use **watch MR** on a session row to watch a GitLab MR, or register through the
+API:
+
+```
+curl -X POST localhost:8788/api/mr-watches \
+  -H 'content-type: application/json' \
+  -d '{"session_id":"session-id","project":"group/project","mr_iid":123}'
+```
+
+Registration reads the MR with `glab api` and pins the current head SHA. The
+poller deduplicates by project, MR IID, and head SHA, checks every 20 seconds,
+and stops after a terminal state, two consecutive read failures, a head change,
+or 30 minutes. The time budget includes time while the server is stopped.
+Nonterminal watches resume when the local server restarts without resetting
+that deadline. One failed read remains waiting and retryable. Registering the
+same MR/head from a different session returns a conflict rather than moving
+ownership between sessions.
+`GITLAB_WATCH_INTERVAL_MS` and `GITLAB_WATCH_TIMEOUT_MS` override those bounds.
+Stop the local AgentLens process to stop all watches.
+
+MR state stays separate from coding state: `ready` means current-head CI is
+green, `blocked` means failed/cancelled/manual/skipped CI or a merge conflict,
+and `done` means merged. An old-head pipeline never satisfies the current head.
+A timeout, GitLab read failure, closed MR, or changed head becomes `stale`, not
+`done`. Use **re-check MR** after a push to register the new head. GitLab is
+strictly read-only; only the local AgentLens database is written. Registration
+is explicit because a session's original branch is not reliable MR identity.
+No session metadata is shipped to another AgentLens server by this feature.
 
 ### Bring your own harness
 

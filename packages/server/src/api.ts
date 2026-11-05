@@ -5,6 +5,8 @@ import { agentSummaries, db, fleetTotals, sessionCount, sessionSource, sessionSu
 import type { SessionQuery } from "./db.js";
 import { closeTurn, ensureSession, openTurn, putEvent, touch } from "./sources/emit.js";
 import { renderMetrics } from "./metrics.js";
+import { gitlabWatcher } from "./mr-watcher.js";
+import { MrWatchConflictError } from "./gitlab-watch.js";
 import { fleetRetries } from "./retries.js";
 import { active } from "./sources/index.js";
 import { client, trueforgeOk } from "./sources/trueforge.js";
@@ -38,6 +40,26 @@ app.get("/api/sessions", (c) => {
   return c.json({ sessions: sessionSummaries(opts), total: sessionCount(opts) });
 });
 app.get("/api/stats", (c) => c.json(fleetTotals()));
+
+// Register the current MR head explicitly. GitLab is read-only; watch state is
+// stored locally and terminal/timeout/head-change states all stop the poller.
+app.post("/api/mr-watches", async (c) => {
+  const body = await c.req.json().catch(() => null) as any;
+  const sessionId = typeof body?.session_id === "string" ? body.session_id : "";
+  const project = typeof body?.project === "string" ? body.project.slice(0, 200) : "";
+  const iid = Number(body?.mr_iid);
+  if (!sessionId) return c.json({ error: "session_id is required" }, 400);
+  if (!/^[a-z0-9_.-]+(?:\/[a-z0-9_.-]+)+$/i.test(project))
+    return c.json({ error: "project must be a GitLab path such as group/project" }, 400);
+  if (!Number.isInteger(iid) || iid <= 0) return c.json({ error: "mr_iid must be a positive integer" }, 400);
+  if (!sessionSource.get(sessionId)) return c.json({ error: "session not found" }, 404);
+  try {
+    return c.json(await gitlabWatcher.register({ session_id: sessionId, project, mr_iid: iid }));
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, err instanceof MrWatchConflictError ? 409 : 502);
+  }
+});
+
 app.get("/api/retries", (c) => {
   const n = Math.trunc(Number(c.req.query("days") || 7));
   const days = Number.isFinite(n) ? Math.min(Math.max(n, 1), 90) : 7;

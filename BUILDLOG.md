@@ -739,3 +739,30 @@ matched any "rejected", which also hid real failures: git's `! [rejected]`, a
 GitHub push-rule rejection, ripgrep rejecting a pattern. The real declines all
 say "the user rejected" (OpenCode, dsh), so that is what it matches now, and 8
 hidden tool errors in 8 sessions show up again.
+
+## 2026-11-04 - Coding state and read-only MR watches
+
+The highest-frequency personal toil was not failed agents; it was asking agents
+whether they were done and manually polling MRs. AgentLens now derives current
+coding state from the newest turn, current approvals, and recent activity rather
+than marking a session failed forever because an old turn failed. A second state
+tracks an explicitly registered GitLab MR: ready means current-head CI is green,
+done means merged, and a stale pipeline can never satisfy a new head.
+
+The watcher uses the existing `glab` authentication with no new dependency. It
+deduplicates by project, MR IID, and head SHA, polls every 20 seconds, and stops
+on a terminal state, two consecutive read failures, a head change, or 30
+minutes. Registration derives the head from GitLab instead of trusting the
+session's original branch. GitLab remains read-only; watch state is local
+SQLite, and nothing is shipped to another AgentLens host.
+
+Verification: 137 server tests and the full production build pass. A live local
+collector ingested the real session stores into an isolated database, and a
+read-only watch of metarepo MR !1944 accepted its current-head green pipeline as
+ready. Duplicate registration left one row. That live check caught an internal
+SQLite row-number field leaking into the JSON, which is now covered by a test.
+Follow-up review also covered persisted deadlines, one-failure recovery,
+ownership conflicts, and natural or forced termination racing an explicit
+re-check. Every registration now supersedes the prior watch generation, so an
+older loop cannot overwrite a newer result or disappear without starting its
+waiting replacement.
