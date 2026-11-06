@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import { agentSummaries, db, sessionSummaries, sessionTrace } from "./db.js";
+import { agentSummaries, db, sessionTrace } from "./db.js";
 import { fleetRetries } from "./retries.js";
-import { ensureSnapshot, investigationById, readSnapshot } from "./investigations.js";
+import { fleetSnapshots, investigationById, readSnapshot } from "./investigations.js";
 
 // Fixed vocabulary so reports can be compared and counted across investigations.
 export const FAILURE_CODES = {
@@ -33,10 +33,7 @@ export function buildMcp() {
     async () => {
       // Ranked in SQL rather than filtered on thresholds, so this really is
       // worst first; a session with nothing wrong scores zero and is dropped.
-      const rows = sessionSummaries({ sort: "score", limit: 20 })
-        .filter((s: any) => s.problem_score > 0)
-        .map((s: any) => ({ ...s, snapshot_id: ensureSnapshot(String(s.id)).id }));
-      return { content: [{ type: "text", text: JSON.stringify(rows, null, 1) }] };
+      return { content: [{ type: "text", text: JSON.stringify(fleetSnapshots(), null, 1) }] };
     },
   );
 

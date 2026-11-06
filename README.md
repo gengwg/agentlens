@@ -363,7 +363,7 @@ Click "Investigate fleet" in the dashboard. The investigator finds the failing
 sessions, fans out subagents, drafts an incident report, and pauses on the
 approval gate; Allow publishes the report to the dashboard. Trace excerpts are
 sent to the model provider configured in TrueForge. Repeated clicks are
-deduplicated by session or fleet event revision. Each trace used by the
+deduplicated by session revision or the fleet suspect snapshot set. Each trace used by the
 investigator is a persisted, secret-masked snapshot, so later event updates do
 not change the evidence under analysis. Report publication is idempotent by
 investigation ID; older calls without one are deduplicated by exact content.

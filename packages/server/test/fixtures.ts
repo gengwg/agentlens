@@ -20,7 +20,7 @@ export const {
 export const { RETRY_WINDOW, toolCallsOf, findRetries, serverOf, rollupRetries, sessionRetries, fleetRetries } = await import("../src/retries.ts");
 export const { app } = await import("../src/api.ts");
 export const { buildMcp } = await import("../src/mcp.ts");
-export const { ensureSnapshot, readSnapshot, prepareInvestigation, launchInvestigation } = await import("../src/investigations.ts");
+export const { ensureSnapshot, readSnapshot, prepareInvestigation, launchInvestigation, fleetSnapshots } = await import("../src/investigations.ts");
 export const { turnRow } = await import("../src/sources/trueforge.ts");
 
 type TurnSpec = {
