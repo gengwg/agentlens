@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { db, sessionTrace } from "./db.js";
+import { db, sessionSummaries, sessionTrace } from "./db.js";
 
 export type InvestigationKind = "fleet" | "session";
 export type SnapshotRecord = { id: string; session_id: string; revision: number };
@@ -61,12 +61,25 @@ export function readSnapshot(id: string) {
   return row ? { ...row, snapshot: JSON.parse(row.snapshot) as ReturnType<typeof sessionTrace> } : undefined;
 }
 
+export function fleetSnapshots() {
+  return sessionSummaries({ sort: "score", limit: 20 })
+    .filter((s: any) => s.problem_score > 0 && s.agent_name !== "investigator")
+    .map((s: any) => {
+      const snapshot = ensureSnapshot(String(s.id));
+      return { ...s, snapshot_id: snapshot.id, revision: snapshot.revision };
+    });
+}
+
 export function prepareInvestigation(kind: InvestigationKind, targetSessionId?: string): PreparedInvestigation {
   return db.transaction(() => {
     const snapshot = kind === "session" ? ensureSnapshot(targetSessionId!) : undefined;
-    const revision = snapshot?.revision ?? revisionOf();
+    const suspects = kind === "fleet" ? fleetSnapshots() : undefined;
+    const revision = snapshot?.revision ?? (suspects?.length ? Math.max(...suspects.map((s) => s.revision)) : revisionOf());
     const target = snapshot?.session_id ?? targetSessionId ?? "";
-    const id = idFor("investigation", [kind, target, revision]);
+    // A fleet investigation is about a suspect set, not every event in the
+    // fleet. Its own activity and unrelated clean sessions cannot invalidate it.
+    const basis = snapshot ? target : suspects?.map((s) => s.snapshot_id).sort().join(",") ?? "";
+    const id = snapshot ? idFor("investigation", [kind, target, revision]) : idFor("investigation", [kind, basis]);
     db.prepare(`INSERT OR IGNORE INTO investigations (id, kind, target_session_id, revision) VALUES (?, ?, ?, ?)`)
       .run(id, kind, target || null, revision);
     const prompt = snapshot

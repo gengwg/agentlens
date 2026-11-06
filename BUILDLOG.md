@@ -788,3 +788,16 @@ that mutation, concurrent launch deduplication, fleet revision advancement,
 turn-failure recovery on the same root session, snapshot-aware MCP reads, and
 idempotent publication, alongside the existing server suite and production
 build.
+
+## 2026-11-06 - Fleet identity must name the suspects
+
+The first live fleet investigation immediately invalidated itself: the global
+`MAX(events.seq)` advanced as the investigator wrote its own session, and other
+active but clean sessions moved it too. Re-clicking therefore created another
+investigation instead of reusing the running one. Fleet launches now derive
+their identity from the sorted snapshot ids of the suspect sessions shown by
+`list_problem_sessions`, with the investigator excluded. The MCP tool and launch
+preparation share that same list. Clean or investigator activity does not move
+the identity; a changed suspect snapshot starts a new investigation. Existing
+launches created with the global revision get one new launch after this change,
+then repeated clicks deduplicate as intended.

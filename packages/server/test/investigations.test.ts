@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ensureSnapshot, launchInvestigation, readSnapshot, seedSession, upsertEvent } from "./fixtures.ts";
+import { ensureSnapshot, fleetSnapshots, launchInvestigation, readSnapshot, seedSession, upsertEvent } from "./fixtures.ts";
 
 function eventRow(sessionId: string, id: string, content: string) {
   return {
@@ -35,7 +35,7 @@ function fakeLauncher(failTurns = 0) {
 }
 
 test("an investigation snapshot survives in-place event updates", () => {
-  seedSession("s-snapshot", { turns: [{ id: "t1" }], events: [{ id: "e-snapshot-1", type: "model.message", raw: { content: "before" } }] });
+  seedSession("s-snapshot", { turns: [{ id: "snapshot-t1" }], events: [{ id: "e-snapshot-1", type: "model.message", raw: { content: "before" } }] });
   const first = ensureSnapshot("s-snapshot");
   assert.equal(ensureSnapshot("s-snapshot").id, first.id);
 
@@ -70,8 +70,8 @@ test("targeted launches deduplicate concurrently and advance on a new revision",
   assert.equal(calls.sessions, 2);
 });
 
-test("fleet launches deduplicate by the fleet revision", async () => {
-  seedSession("s-fleet", { events: [{ id: "e-fleet-1", type: "model.message", raw: {} }] });
+test("fleet launches deduplicate by the suspect snapshots, not global activity", async () => {
+  seedSession("s-fleet", { turns: [{ id: "fleet-t1", status: "error" }], events: [{ id: "e-fleet-1", type: "model.message", raw: {} }] });
   const { calls, client } = fakeLauncher();
   const first = await launchInvestigation("fleet", undefined, client);
   const again = await launchInvestigation("fleet", undefined, client);
@@ -79,9 +79,15 @@ test("fleet launches deduplicate by the fleet revision", async () => {
   assert.equal(again.deduplicated, true);
   assert.equal(calls.sessions, 1);
 
+  seedSession("s-unrelated", { events: [{ id: "e-unrelated-1", type: "model.message", raw: {} }] });
+  seedSession("s-investigator", { agent: "investigator", turns: [{ id: "investigator-t1", status: "error" }], events: [{ id: "e-investigator-1", type: "model.message", raw: {} }] });
+  const unrelated = await launchInvestigation("fleet", undefined, client);
+  assert.equal(unrelated.investigation_id, first.investigation_id, "clean and investigator events must not invalidate the suspect set");
+  assert.equal(calls.sessions, 1);
+
   upsertEvent.run(eventRow("s-fleet", "e-fleet-2", "new"));
   const advanced = await launchInvestigation("fleet", undefined, client);
-  assert.notEqual(advanced.investigation_id, first.investigation_id);
+  assert.notEqual(advanced.investigation_id, first.investigation_id, JSON.stringify({ first, advanced, suspects: fleetSnapshots().map((s) => ({ id: s.id, snapshot_id: s.snapshot_id })) }));
   assert.equal(calls.sessions, 2);
 });
 

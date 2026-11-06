@@ -59,7 +59,7 @@ test("publish_incident_report is idempotent by investigation and by legacy conte
 });
 
 test("list_problem_sessions supplies a snapshot id for each suspect", async () => {
-  seedSession("s-problem", { turns: [{ id: "t1", status: "error" }], events: [{ id: "e-problem-1", type: "model.message", raw: { content: "pinned" } }] });
+  seedSession("s-problem", { turns: [{ id: "problem-t1", status: "error" }], events: [{ id: "e-problem-1", type: "model.message", raw: { content: "pinned" } }] });
   const client = await connect();
   const res = await client.callTool({ name: "list_problem_sessions", arguments: {} });
   const rows = JSON.parse((res as any).content[0].text);
