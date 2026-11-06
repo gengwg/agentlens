@@ -801,3 +801,9 @@ preparation share that same list. Clean or investigator activity does not move
 the identity; a changed suspect snapshot starts a new investigation. Existing
 launches created with the global revision get one new launch after this change,
 then repeated clicks deduplicate as intended.
+
+Live verification also caught `SQLITE_BUSY_SNAPSHOT`: a deferred snapshot read
+transaction can fail when it upgrades to a write while the collector is active.
+Snapshot creation and launch preparation now use immediate transactions. A
+second-process test held a write lock for 500 ms while preparation started; it
+waited and completed instead of failing.

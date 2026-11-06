@@ -40,6 +40,8 @@ function revisionOf(sessionId?: string) {
 }
 
 export function ensureSnapshot(sessionId: string): SnapshotRecord {
+  // Wait for the live collector instead of failing when a deferred read
+  // transaction would have to upgrade to a write during ingestion.
   return db.transaction(() => {
     const revision = revisionOf(sessionId);
     const id = idFor("snapshot", [sessionId, revision]);
@@ -51,7 +53,7 @@ export function ensureSnapshot(sessionId: string): SnapshotRecord {
     db.prepare(`INSERT INTO investigation_snapshots (id, session_id, revision, snapshot) VALUES (?, ?, ?, ?)`)
       .run(id, sessionId, revision, JSON.stringify(snapshot));
     return { id, session_id: sessionId, revision };
-  })();
+  }).immediate();
 }
 
 export function readSnapshot(id: string) {
@@ -86,7 +88,7 @@ export function prepareInvestigation(kind: InvestigationKind, targetSessionId?: 
       ? `Investigation ${id}. Investigate session ${target} using snapshot ${snapshot.id}. Call get_session_trace with session_id and snapshot_id, then publish an incident report with investigation_id ${id}.`
       : `Investigation ${id}. Triage the fleet: call list_problem_sessions, investigate the worst offenders in parallel with subagents using each session's snapshot_id, then produce one incident report with investigation_id ${id}.`;
     return { id: snapshot?.id ?? "", session_id: target, revision, investigation_id: id, kind, prompt };
-  })();
+  }).immediate();
 }
 
 function launchRow(id: string) {
