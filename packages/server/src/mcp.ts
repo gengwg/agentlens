@@ -14,6 +14,7 @@ export const FAILURE_CODES = {
   stall: "long gap with no progress, or hit an iteration or time limit",
   "wrong-premise": "acted on a false belief about its environment or task",
   "approval-wait": "blocked waiting on a human approval",
+  "unverified-claim": "said it was done or passing without running a check that was available",
   "model-error": "the model or provider failed (rate limit, context overflow, malformed output)",
   other: "none of the above",
 } as const;
@@ -29,6 +30,7 @@ export function buildMcp() {
       description:
         "List sessions ranked by how much they look like they went wrong: failed turns, repeated tool failures, long stalls, and unusual numbers of tool calls per turn. Worst first. Start an investigation here.",
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => {
       // Ranked in SQL rather than filtered on thresholds, so this really is
@@ -43,6 +45,7 @@ export function buildMcp() {
       description:
         "Full trace for one session: turns with status/duration/errors, and per-event log. When list_problem_sessions or the user supplies snapshot_id, pass it to read the pinned sanitized evidence.",
       inputSchema: { session_id: z.string(), snapshot_id: z.string().min(1).optional() },
+      annotations: { readOnlyHint: true },
     },
     async ({ session_id, snapshot_id }) => {
       const pinned = snapshot_id ? readSnapshot(snapshot_id) : undefined;
@@ -80,6 +83,7 @@ export function buildMcp() {
     {
       description: "Per-agent aggregates: session counts and how many sessions had errors.",
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => ({
       content: [{ type: "text", text: JSON.stringify(agentSummaries(), null, 1) }],
@@ -92,6 +96,7 @@ export function buildMcp() {
       description:
         "Tools that failed and were retried, per tool and MCP server, most blind retries (sameArgs) first. sameArgs counts blind retries with identical arguments; recovered counts retries that then worked.",
       inputSchema: { days: z.number().int().min(1).max(90).default(7) },
+      annotations: { readOnlyHint: true },
     },
     async ({ days }) => ({
       content: [
@@ -106,6 +111,7 @@ export function buildMcp() {
       description:
         "Export a session's raw event log as JSON, for deeper analysis in the sandbox. Pass snapshot_id when supplied to export the pinned sanitized evidence.",
       inputSchema: { session_id: z.string(), snapshot_id: z.string().min(1).optional() },
+      annotations: { readOnlyHint: true },
     },
     async ({ session_id, snapshot_id }) => {
       const pinned = snapshot_id ? readSnapshot(snapshot_id) : undefined;
