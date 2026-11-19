@@ -123,3 +123,21 @@ test("list_tool_retries returns the rollup", async () => {
   assert.ok(row && "retried" in row);
   assert.equal(row.retried, 1);
 });
+
+test("read tools say they are read-only and the publish tool says it writes", async () => {
+  const client = await connect();
+  const { tools } = await client.listTools();
+  const hint = Object.fromEntries(tools.map((t) => [t.name, t.annotations?.readOnlyHint]));
+  for (const name of ["list_problem_sessions", "get_session_trace", "get_fleet_metrics", "list_tool_retries", "export_trace_json"]) {
+    assert.equal(hint[name], true, name);
+  }
+  assert.equal(hint.publish_incident_report, false);
+  assert.equal(Object.keys(hint).length, 6, "a new tool needs an explicit readOnlyHint");
+});
+
+test("publish_incident_report accepts unverified-claim", async () => {
+  seedSession("s-mcp-unverified", { agent: "docs-helper" });
+  const client = await connect();
+  const res = await publish(client, [{ session_id: "s-mcp-unverified", code: "unverified-claim" }]);
+  assert.ok(!res.isError);
+});

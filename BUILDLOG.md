@@ -807,3 +807,16 @@ transaction can fail when it upgrades to a write while the collector is active.
 Snapshot creation and launch preparation now use immediate transactions. A
 second-process test held a write lock for 500 ms while preparation started; it
 waited and completed instead of failing.
+
+## 2026-11-18 - Read-only hints and an unverified-claim code
+
+The five read tools on the MCP server now declare `readOnlyHint: true`; only
+`publish_incident_report` said anything about side effects before, so a client
+that auto-approves read-only tools had nothing to go on. A test lists the tools
+and fails if a new one arrives without an explicit hint.
+
+The failure vocabulary gains `unverified-claim`: the agent said it was done or
+passing without running a check that was available. A talk at MCPCon 2026 on
+failure modes from 6,000 agent traces listed it among the process and
+self-assessment failures, and none of the existing codes fit; `wrong-premise` is a false belief
+about the environment, not a skipped check. Earlier reports keep their codes.
