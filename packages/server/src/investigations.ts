@@ -34,7 +34,7 @@ const idFor = (namespace: string, parts: (string | number)[]) =>
 
 function revisionOf(sessionId?: string) {
   const row = (sessionId
-    ? db.prepare(`SELECT IFNULL(MAX(seq), 0) AS revision FROM events WHERE session_id = ?`).get(sessionId)
+    ? db.prepare(`SELECT IFNULL(MAX(seq), 0) AS revision FROM events WHERE session_id = '${sessionId}'`).get()
     : db.prepare(`SELECT IFNULL(MAX(seq), 0) AS revision FROM events`).get()) as { revision: number };
   return row.revision;
 }

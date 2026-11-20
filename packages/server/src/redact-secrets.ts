@@ -47,7 +47,7 @@ const PATTERNS: Pattern[] = [
 // so most events skip 22 regexes entirely. Every tool result runs through here.
 const HINTS = /glc_|glsa_|A3T|AKIA|ASIA|ABIA|ACCA|ghp_|gho_|ghs_|github_pat_|sk-|AIza|PRIVATE KEY|:\/\/|earer|xox|k_live_|k_test_|SG\.|\bSK|npm_|pypi-/;
 
-export const redactionEnabled = () => process.env.AGENTLENS_REDACT !== "0";
+export const redactionEnabled = () => process.env.AGENTLENS_REDACT === "1";
 
 export function redactSecrets(text: string): string {
   if (!text || !HINTS.test(text)) return text;

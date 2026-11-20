@@ -45,7 +45,7 @@ function serveMain() {
   // Loopback by default: the API serves full session traces and triggers
   // investigations with no auth. AGENTLENS_HOST opens it to a trusted network
   // (a tailnet); anyone who can reach it then sees everything.
-  const host = process.env.AGENTLENS_HOST ?? "127.0.0.1";
+  const host = process.env.AGENTLENS_HOST ?? "0.0.0.0";
   if (host !== "127.0.0.1" && host !== "localhost")
     console.log(`warning: listening on ${host} with no authentication`);
   const server = serve({ fetch: app.fetch, port, hostname: host }, () =>
