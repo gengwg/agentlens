@@ -50,11 +50,12 @@ jobs:
         run: |
           echo "::error::Review finished but no summary comment was posted"
           exit 1
-      # On failure the action leaves the last summary untouched, so an earlier
-      # all-clear would still show. Rewrite it in place, keeping the marker the
-      # action uses to find it, so the next successful run updates it again.
+      # On failure, timeout or cancel the action leaves the last summary
+      # untouched, so an earlier all-clear would still show. Rewrite it in
+      # place, keeping the marker the action uses to find it, so the next
+      # successful run updates it again.
       - name: Mark the summary as not current
-        if: failure()
+        if: failure() || cancelled()
         # Explicit bash adds pipefail: a failed listing must not fall through
         # to posting a duplicate summary.
         shell: bash
@@ -64,6 +65,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # A run cancelled by a newer push leaves the summary to the newer run.
+          head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .head.sha)"
+          [ "$head" = "$HEAD_SHA" ] || exit 0
           body="$(printf '<!-- ocr-summary -->\n⚠️ **OpenCodeReview**: the review of %s did not complete, so there is no current review. See [the failed run](%s).' "${HEAD_SHA:0:7}" "$RUN_URL")"
           id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- ocr-summary -->"))) | .id' | tail -n 1)"
