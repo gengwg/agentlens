@@ -324,6 +324,7 @@ How AgentLens uses TrueForge capabilities (filled in as built):
 
 - TrueForge (`@truefoundry/trueforge`, `@truefoundry/trueforge-sdk`) - agent harness
 - Node 22+/TypeScript, Hono, better-sqlite3, Vite + React
+- Alibaba Open Code Review (`.github/workflows/ocr-review.yml`) - AI review comments on each pull request
 
 All changes land through pull requests; no direct pushes to main.
 

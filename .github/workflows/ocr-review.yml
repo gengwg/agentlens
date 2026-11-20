@@ -1,0 +1,20 @@
+name: ocr-review
+
+# AI review of each pull request. The job lives in gengwg/ci-workflows, so
+# fixes there reach this repo without editing this file.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    uses: gengwg/ci-workflows/.github/workflows/ocr-review.yml@main
+    with:
+      llm_url: ${{ vars.OCR_LLM_URL }}
+      llm_model: ${{ vars.OCR_LLM_MODEL }}
+    secrets:
+      llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
