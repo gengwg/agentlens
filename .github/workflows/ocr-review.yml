@@ -1,16 +1,10 @@
 name: ocr-review
 
-# AI review of each pull request with Alibaba Open Code Review: inline
-# comments on the changed lines plus one summary comment updated in place.
-# Repository settings: variables OCR_LLM_URL (an OpenAI-compatible
-# /v1/chat/completions endpoint) and OCR_LLM_MODEL, secret OCR_LLM_AUTH_TOKEN.
+# AI review of each pull request. The job lives in gengwg/ci-workflows, so
+# fixes there reach this repo without editing this file.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-
-concurrency:
-  group: ocr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -18,61 +12,9 @@ permissions:
 
 jobs:
   review:
-    # Fork and Dependabot PRs get no secrets under pull_request, so they skip
-    # instead of failing. Drafts wait for ready_for_review.
-    if: >-
-      !github.event.pull_request.draft
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - id: ocr
-        # No checkout step: the action checks out the base with full history
-        # and fetches the PR head itself. It installs the CLI at run time, so
-        # pin both the action and ocr_version.
-        uses: alibaba/open-code-review@445ad9dea3057346986197385858a1a281253cc9  # v1.13.13
-        with:
-          ocr_version: '1.13.13'
-          llm_url: ${{ vars.OCR_LLM_URL }}
-          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
-          llm_model: ${{ vars.OCR_LLM_MODEL }}
-          llm_use_anthropic: 'false'
-          effort: low
-          review_task_timeout: '12'
-          review_concurrency: '4'
-          sticky_summary: 'true'
-          incremental: 'true'
-      # The action fails the job when the review fails, but a run whose
-      # summary comment never posted would otherwise still be green.
-      - name: Require the summary comment
-        if: steps.ocr.outputs.summary_comment_url == ''
-        run: |
-          echo "::error::Review finished but no summary comment was posted"
-          exit 1
-      # On failure, timeout or cancel the action leaves the last summary
-      # untouched, so an earlier all-clear would still show. Rewrite it in
-      # place, keeping the marker the action uses to find it, so the next
-      # successful run updates it again.
-      - name: Mark the summary as not current
-        if: failure() || cancelled()
-        # Explicit bash adds pipefail: a failed listing must not fall through
-        # to posting a duplicate summary.
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          # A run cancelled by a newer push leaves the summary to the newer run.
-          head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .head.sha)"
-          [ "$head" = "$HEAD_SHA" ] || exit 0
-          body="$(printf '<!-- ocr-summary -->\n⚠️ **OpenCodeReview**: the review of %s did not complete, so there is no current review. See [the failed run](%s).' "${HEAD_SHA:0:7}" "$RUN_URL")"
-          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- ocr-summary -->"))) | .id' | tail -n 1)"
-          if [ -n "$id" ]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" > /dev/null
-          else
-            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$body" > /dev/null
-          fi
+    uses: gengwg/ci-workflows/.github/workflows/ocr-review.yml@main
+    with:
+      llm_url: ${{ vars.OCR_LLM_URL }}
+      llm_model: ${{ vars.OCR_LLM_MODEL }}
+    secrets:
+      llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
