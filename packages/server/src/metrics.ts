@@ -69,16 +69,18 @@ export function renderMetrics(): string {
   }
   out.push(block("agentlens_tokens_total", "Tokens reported by the harness.", "counter", tokens));
 
-  // basis="reported" is what the harness charged; basis="estimated" is tokens
-  // priced from models.dev, for the harnesses that report nothing.
-  const cost: Line[] = [];
+  const reportedCost: Line[] = [];
+  const estimatedCost: Line[] = [];
   for (const r of m.cost) {
     if (r.reported > 0)
-      cost.push({ name: "agentlens_cost_usd_total", labels: { source: r.source, agent: r.agent, basis: "reported" }, value: r.reported });
+      reportedCost.push({ name: "agentlens_reported_cost_usd", labels: { source: r.source, agent: r.agent }, value: r.reported });
     if (r.estimated > 0)
-      cost.push({ name: "agentlens_cost_usd_total", labels: { source: r.source, agent: r.agent, basis: "estimated" }, value: r.estimated });
+      estimatedCost.push({ name: "agentlens_estimated_cost_usd", labels: { source: r.source, agent: r.agent }, value: r.estimated });
   }
-  out.push(block("agentlens_cost_usd_total", "Cost in USD: reported by the harness, or estimated from token counts.", "counter", cost));
+  // Harness corrections and repricing can lower current valuations, so neither
+  // is a lifetime counter.
+  out.push(block("agentlens_reported_cost_usd", "Current USD valuation reported by the harness.", "gauge", reportedCost));
+  out.push(block("agentlens_estimated_cost_usd", "Current estimated USD valuation of unreported token usage at the latest stored prices.", "gauge", estimatedCost));
   out.push(
     block("agentlens_pending_approvals", "Sessions whose newest turn is waiting on a human.", "gauge",
       m.approvals.map((r) => ({ name: "agentlens_pending_approvals", labels: { source: r.source }, value: r.n }))),

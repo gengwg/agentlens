@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { db, seedSession } from "./fixtures.ts";
+import { db, refreshPrices, seedSession, upsertEvent } from "./fixtures.ts";
 
 const { renderMetrics } = await import("../src/metrics.ts");
 
@@ -85,13 +85,68 @@ test("cost counts what a harness reported, without double counting OpenCode", ()
     events: [{ id: "mr-e1", type: "model.message", raw: { cost: 0.25 } }],
   });
   const { series } = scrape();
-  assert.equal(series.get(`agentlens_cost_usd_total{source="opencode",agent="billing",basis="reported"}`), 0.05);
-  assert.equal(series.get(`agentlens_cost_usd_total{source="roo-code",agent="docs",basis="reported"}`), 0.25);
+  assert.equal(series.get(`agentlens_reported_cost_usd{source="opencode",agent="billing"}`), 0.05);
+  assert.equal(series.get(`agentlens_reported_cost_usd{source="roo-code",agent="docs"}`), 0.25);
   assert.equal(
-    series.get(`agentlens_cost_usd_total{source="opencode",agent="billing",basis="estimated"}`),
+    series.get(`agentlens_estimated_cost_usd{source="opencode",agent="billing"}`),
     undefined,
     "a harness that reports its own cost is not also estimated",
   );
+});
+
+test("cost valuations are gauges so corrections and repricing can lower them", () => {
+  seedSession("m-cost-estimated", {
+    source: "claude-code",
+    agent: "estimated",
+    events: [{
+      id: "mce-1",
+      type: "model.message",
+      raw: {
+        model: "claude-opus-5",
+        usage: { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
+    }],
+  });
+  seedSession("m-cost-reported-guard", {
+    source: "opencode",
+    agent: "reported",
+    turns: [{ id: "mcr-turn" }],
+    events: [{
+      id: "mcr-1",
+      turn_id: "mcr-turn",
+      type: "turn.done",
+      raw: { state: { metrics: { totalCostInUsd: 0.5 } } },
+    }],
+  });
+  const prices = (input: number) => (model: string) =>
+    model === "claude-opus-5" ? { input, output: 0, cache_read: 0, cache_write: 0 } : undefined;
+  const labels = 'source="claude-code",agent="estimated"';
+  const reported = 'agentlens_reported_cost_usd{source="opencode",agent="reported"}';
+
+  refreshPrices(prices(10));
+  const high = scrape();
+  assert.equal(high.series.get(`agentlens_estimated_cost_usd{${labels}}`), 10);
+  assert.equal(high.families.get("agentlens_estimated_cost_usd"), "gauge");
+  assert.equal(high.families.get("agentlens_reported_cost_usd"), "gauge");
+  assert.equal(high.families.get("agentlens_cost_usd_total"), undefined);
+
+  refreshPrices(prices(4));
+  const low = scrape();
+  assert.equal(low.series.get(`agentlens_estimated_cost_usd{${labels}}`), 4, "a price reduction may lower the gauge");
+  assert.equal(low.series.get(reported), 0.5);
+
+  upsertEvent.run({
+    id: "mcr-1",
+    session_id: "m-cost-reported-guard",
+    turn_id: "mcr-turn",
+    thread_id: null,
+    type: "turn.done",
+    created_at: "2026-09-01T00:00:00Z",
+    raw: JSON.stringify({ state: { metrics: { totalCostInUsd: 0.25 } } }),
+  });
+  const corrected = scrape();
+  assert.equal(corrected.series.get(reported), 0.25, "a harness correction may lower the gauge");
+  assert.equal(corrected.families.get("agentlens_reported_cost_usd"), "gauge");
 });
 
 test("pending approvals are a gauge, and running turns are reported", () => {

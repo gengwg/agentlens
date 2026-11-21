@@ -164,7 +164,7 @@ export function createOpenCode(src: Database): Source {
     const completed = iso(Math.max(...replies.map((r) => r.time?.completed ?? r.time?.created ?? 0)));
     setTurnState.run(status, completed, maskText(message), `oc:${userMsgId}`);
     const cost = replies.reduce((n, r) => n + (r.cost ?? 0), 0);
-    insertEvent.run({
+    upsertEvent.run({
       id: `oc:${userMsgId}:done`,
       session_id: sessionId,
       turn_id: `oc:${userMsgId}`,

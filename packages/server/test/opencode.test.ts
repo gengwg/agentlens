@@ -89,6 +89,28 @@ test("opencode: root session with tools, error, child thread and completed turn"
   assert.equal(sessionTrace("ses_1").events.find((e) => e.id === "oc:msg_a")!.raw.content, "Added and verified.");
 });
 
+test("opencode: a later cost update replaces turn.done without duplicating it", async () => {
+  const { src, ins } = openCodeDb();
+  ins("session", { id: "ses_4", parent_id: null, directory: "/w/cost", title: "t", time_created: t0, time_updated: t0 });
+  ins("message", { id: "msg_u4", session_id: "ses_4", time_created: t0, time_updated: t0, data: { role: "user", time: { created: t0 } } });
+  ins("message", { id: "msg_a4", session_id: "ses_4", time_created: t0 + 1, time_updated: t0 + 2,
+    data: { role: "assistant", parentID: "msg_u4", tokens: {}, cost: 0, finish: "stop", time: { created: t0 + 1, completed: t0 + 2 } } });
+  const source = createOpenCode(src);
+  await source.poll();
+
+  src.prepare(`UPDATE message SET data = json_set(data, '$.cost', ?), time_updated = ? WHERE id = 'msg_a4'`).run(0.04, t0 + 3);
+  await source.poll();
+  const done = sessionTrace("ses_4").events.filter((e) => e.type === "turn.done");
+  assert.equal(done.length, 1);
+  assert.equal(done[0].raw.state.metrics.totalCostInUsd, 0.04);
+
+  src.prepare(`UPDATE message SET data = json_set(data, '$.cost', ?), time_updated = ? WHERE id = 'msg_a4'`).run(0.02, t0 + 4);
+  await source.poll();
+  const corrected = sessionTrace("ses_4").events.filter((e) => e.type === "turn.done");
+  assert.equal(corrected.length, 1);
+  assert.equal(corrected[0].raw.state.metrics.totalCostInUsd, 0.02, "downward corrections stay faithful to the harness");
+});
+
 test("opencode: turn stays running until the last reply completes", async () => {
   const { src, ins } = openCodeDb();
   ins("session", { id: "ses_2", parent_id: null, directory: "/w/x", title: "t", time_created: t0, time_updated: t0 });

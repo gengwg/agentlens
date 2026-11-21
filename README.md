@@ -21,6 +21,8 @@ they show the layout without anyone's transcripts.
   other harness can post the same JSON to the ingest API.
 - Dashboard with a fleet overview and a per-session trace view: timeline of
   input/model/tool activity plus a turn-by-turn transcript with durations.
+  The transcript starts with the newest 200 events; **show older** prepends
+  earlier slices, and search still covers the complete trace.
   Fleet rows also derive current coding state from the newest turn and recent
   activity, and can carry a read-only GitLab MR watch.
   "Failed turns" counts sessions whose turn ended in an error; "tool errors"
@@ -129,7 +131,8 @@ that outlives a checkout keeps the branch it was first seen on; the logs do not
 record when a checkout happened, so anything else would be invention. It is deliberately **not** a `/metrics` label: branches are unbounded
 over time and would multiply every series by them.
 
-Secrets are masked before an event is stored. A session records whatever
+Secrets are masked before an event is stored; incident report titles and bodies
+use the same mask. A session records whatever
 crossed it - a key pasted into a prompt, a `printenv`, a `.env` read back by a
 tool - and `agentlens.db` is a file with no authentication in front of it, so a
 token in a transcript is a token at rest. The pattern table is the tier-1 set
@@ -303,13 +306,16 @@ cardinality stays bounded. Counters are recomputed from SQLite on each scrape
 rather than counted in memory, which means a deleted database reads as a
 counter reset.
 
-`agentlens_cost_usd_total` carries a `basis` label. `reported` is what the
-harness charged (OpenCode and Roo Code do; the rest report nothing).
-`estimated` is token counts priced from [models.dev](https://models.dev), the
-same database OpenCode prices itself from. A session is never both. Only events
-that record cache tokens separately can be estimated, since before that split
-cache reads were folded into input and pricing them at the input rate overstates
-a bill roughly tenfold, so history from before v0.8.1 stays unpriced.
+`agentlens_reported_cost_usd` is a **gauge** for the current cost reported by
+the harness (OpenCode and Roo Code do; the rest report nothing). Harness
+corrections can move it in either direction. `agentlens_estimated_cost_usd` is
+the current valuation of unreported token usage at the latest
+[models.dev](https://models.dev) prices, the same database OpenCode prices
+itself from. Repricing can move that gauge down too, so do not apply `rate()` or
+`increase()` to either family. A session is never both. Only events that record
+cache tokens separately can be estimated, since before that split cache reads
+were folded into input and pricing them at the input rate overstates a bill
+roughly tenfold, so history from before v0.8.1 stays unpriced.
 
 Prices are fetched once a week and cached in `~/.cache/agentlens/prices.json`.
 That is the one request AgentLens makes to the internet, it sends nothing, and

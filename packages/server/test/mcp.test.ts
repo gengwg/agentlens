@@ -58,6 +58,34 @@ test("publish_incident_report is idempotent by investigation and by legacy conte
   assert.equal(reportCount(), before + 2);
 });
 
+test("publish_incident_report masks secrets in storage and remains idempotent", async () => {
+  seedSession("s-mcp-secret");
+  const githubPat = "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij";
+  const openaiProject = "sk-" + "proj-" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+  const title = `Incident ${githubPat}`;
+  const body = `Used ${openaiProject}`;
+  const codes = [{ session_id: "s-mcp-secret", code: "loop" }];
+  const client = await connect();
+  const before = reportCount();
+  const call = () => client.callTool({ name: "publish_incident_report", arguments: { title, body, codes } });
+
+  assert.ok(!(await call()).isError);
+  assert.ok(!(await call()).isError);
+  assert.equal(reportCount(), before + 1, "identical retries still publish only one report");
+
+  const stored = db.prepare(`SELECT id, title, body FROM reports ORDER BY id DESC LIMIT 1`).get() as { id: number; title: string; body: string };
+  assert.equal(stored.title, "Incident [REDACTED:github-pat]");
+  assert.equal(stored.body, "Used [REDACTED:openai-project-key]");
+
+  const reports = await (await app.request("/api/reports")).json();
+  const report = reports.find((r: any) => r.id === stored.id);
+  assert.ok(report);
+  assert.equal(report.title, stored.title);
+  assert.equal(report.body, stored.body);
+  assert.ok(!JSON.stringify(report).includes(githubPat));
+  assert.ok(!JSON.stringify(report).includes(openaiProject));
+});
+
 test("list_problem_sessions supplies a snapshot id for each suspect", async () => {
   seedSession("s-problem", { turns: [{ id: "problem-t1", status: "error" }], events: [{ id: "e-problem-1", type: "model.message", raw: { content: "pinned" } }] });
   const client = await connect();

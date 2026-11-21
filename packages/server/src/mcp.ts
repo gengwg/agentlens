@@ -6,6 +6,7 @@ import { z } from "zod";
 import { agentSummaries, db, sessionTrace } from "./db.js";
 import { fleetRetries } from "./retries.js";
 import { fleetSnapshots, investigationById, readSnapshot } from "./investigations.js";
+import { maskText } from "./redact-secrets.js";
 
 // Fixed vocabulary so reports can be compared and counted across investigations.
 export const FAILURE_CODES = {
@@ -147,6 +148,8 @@ export function buildMcp() {
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ title, body, codes, investigation_id }) => {
+      title = maskText(title);
+      body = maskText(body);
       // Codes are counted per agent through their session, so a made-up id
       // would silently skew those counts.
       const known = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);

@@ -11,6 +11,8 @@ import {
   type Trace,
   type TraceEvent,
 } from "./api";
+import { mergeTraceEvents, newestTraceEvents, searchTraceEvents, TRACE_PAGE_SIZE } from "./trace";
+import { safeHttpsHref, sessionHref } from "./url";
 
 const PAGE = 200;
 // The server clamps a page to this, so asking for more silently does nothing.
@@ -65,11 +67,12 @@ function StatusDot({ status }: { status: string }) {
 function MrBadge({ mr }: { mr: MrWatch }) {
   const title = `${mr.detail ?? mr.state}; head ${mr.head_sha.slice(0, 12)}; checked ${fmtTime(mr.last_checked_at)}`;
   const label = `!${mr.mr_iid} ${mr.state}`;
+  const href = safeHttpsHref(mr.web_url);
   const stop = (e: SyntheticEvent) => e.stopPropagation();
   return (
     <div className="mrLine" title={title}>
-      {mr.web_url ? (
-        <a className={`badge mr ${mr.state}`} href={mr.web_url} target="_blank" rel="noreferrer" onClick={stop} onKeyDown={stop}>
+      {href ? (
+        <a className={`badge mr ${mr.state}`} href={href} target="_blank" rel="noreferrer" onClick={stop} onKeyDown={stop}>
           {label}
         </a>
       ) : (
@@ -104,7 +107,7 @@ export function App() {
   // Push so the browser's Back returns to the fleet view; popstate syncs state.
   const setSelected = (id: string | null) => {
     select(id);
-    history.pushState(null, "", id ? `?session=${id}` : location.pathname);
+    history.pushState(null, "", id ? sessionHref(id) : location.pathname);
   };
   // Stat pills filter the fleet, so they also leave an open trace.
   const pickFilter = (f: Filter) => {
@@ -539,6 +542,7 @@ function TraceView({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [live, setLive] = useState<TraceEvent[]>([]);
   const [q, setQ] = useState("");
+  const [rowLimit, setRowLimit] = useState(TRACE_PAGE_SIZE);
 
   const runningTurnId = trace?.turns.find((t) => t.status === "running")?.id;
   const running = Boolean(runningTurnId);
@@ -547,6 +551,7 @@ function TraceView({
   const isTrueforge = trace?.session?.source === "trueforge";
 
   useEffect(() => {
+    setRowLimit(TRACE_PAGE_SIZE);
     let stop = false;
     const load = () =>
       api
@@ -606,15 +611,10 @@ function TraceView({
     };
   }, [sessionId, runningTurnId, isTrueforge]);
 
-  const events = useMemo(() => {
-    const stored = trace?.events ?? [];
-    const storedIds = new Set(stored.map((e) => e.id));
-    return [...stored, ...live.filter((e) => !storedIds.has(e.id))];
-  }, [trace, live]);
-
-  const filtered = q
-    ? events.filter((e) => JSON.stringify(e.raw).toLowerCase().includes(q.toLowerCase()))
-    : events;
+  const events = useMemo(() => mergeTraceEvents(trace?.events ?? [], live), [trace, live]);
+  const filtered = useMemo(() => searchTraceEvents(events, q), [events, q]);
+  const visibleEvents = useMemo(() => newestTraceEvents(filtered, rowLimit), [filtered, rowLimit]);
+  const olderCount = filtered.length - visibleEvents.length;
 
   // toolCallId -> tool name, gathered from assistant messages.
   const retries = useMemo(() => new Map((trace?.retries ?? []).map((r) => [r.failedCallId, r])), [trace]);
@@ -656,7 +656,14 @@ function TraceView({
         {running && <span className="badge running">running</span>}
         {loadError && <span className="errMsg">{loadError} Showing last known data.</span>}
         <span className="grow" />
-        <input placeholder="search events" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input
+          placeholder="search events"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setRowLimit(TRACE_PAGE_SIZE);
+          }}
+        />
         <button
           className="primary"
           disabled={!canInvestigate}
@@ -668,7 +675,12 @@ function TraceView({
       </div>
       <Timeline events={events} />
       <div className="transcript">
-        {filtered.map((e) => (
+        {olderCount > 0 && (
+          <button className="more" onClick={() => setRowLimit((n) => n + TRACE_PAGE_SIZE)}>
+            show {Math.min(TRACE_PAGE_SIZE, olderCount)} older
+          </button>
+        )}
+        {visibleEvents.map((e) => (
           <EventRow
             key={e.id}
             ev={e}

@@ -32,6 +32,19 @@ test("branchOf reads a checked-out branch, including from a subdirectory", () =>
   assert.equal(branchOf(deep), "feat/price-table", "the working directory is usually below the repo root");
 });
 
+test("branchOf sees HEAD changes in the same working directory", () => {
+  const root = repo("ref: refs/heads/main\n");
+  assert.equal(branchOf(root), "main");
+  writeFileSync(join(root, ".git", "HEAD"), "ref: refs/heads/feature\n");
+  assert.equal(branchOf(root), "feature");
+});
+
+test("branchOf resolves a relative gitdir from the .git file's directory", () => {
+  const root = repo("ref: refs/heads/worktree\n", { asFile: true });
+  writeFileSync(join(root, ".git"), "gitdir: gitdir\n");
+  assert.equal(branchOf(root), "worktree");
+});
+
 test("branchOf handles a detached HEAD, a worktree, and no repo at all", () => {
   assert.equal(branchOf(repo("9f1c2b3a4d5e6f70819293a4b5c6d7e8f9012345\n")), "9f1c2b3", "detached HEAD shows the short sha");
   assert.equal(branchOf(repo("ref: refs/heads/main\n", { asFile: true })), "main", "a worktree points at its real gitdir");

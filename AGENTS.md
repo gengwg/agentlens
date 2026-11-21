@@ -25,8 +25,9 @@ product documentation.
 ## Setup, development, and verification
 
 Use Node 22+ and run these commands from the repository root. `npm ci` installs the
-locked workspace dependencies. CI currently uses Node 24 and runs the final three
-checks below.
+locked workspace dependencies. CI currently uses Node 24, runs the final three
+checks below, and runs the production dependency audit as advisory-only while
+known transitive advisories remain.
 
 ```bash
 npm ci

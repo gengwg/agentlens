@@ -16,6 +16,7 @@ const fake = {
   githubPat: "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij",
   awsKey: "AKIA" + "IOSFODNN7EXAMPLE",
 };
+const privateKey = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234\nabcd\n-----END RSA PRIVATE KEY-----";
 
 // Their own corpus, taken verbatim from grafana/agento11y
 // redaction/fixtures/strings.json (Apache-2.0), light mode with emails off,
@@ -98,9 +99,28 @@ test("a secret in a prompt is masked too, and mutated rows stay masked", () => {
 });
 
 test("a private key block is masked whole", () => {
-  const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234\nabcd\n-----END RSA PRIVATE KEY-----";
-  const out = redactSecrets(`here it is:\n${pem}\nthat was it`);
+  const out = redactSecrets(`here it is:\n${privateKey}\nthat was it`);
   assert.equal(out, "here it is:\n[REDACTED:private-key]\nthat was it");
+});
+
+test("a private key in one serialized JSON string is masked without breaking JSON", () => {
+  const raw = JSON.stringify({ content: privateKey, sibling: "unchanged" });
+  assert.deepEqual(JSON.parse(redactSecrets(raw)), {
+    content: "[REDACTED:private-key]",
+    sibling: "unchanged",
+  });
+});
+
+test("private-key markers in separate JSON strings do not consume sibling fields", () => {
+  const value = {
+    begin: "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234",
+    sibling: "keep this field",
+    end: "abcd\n-----END RSA PRIVATE KEY-----",
+    after: "keep this too",
+  };
+  const raw = JSON.stringify(value);
+  assert.equal(redactSecrets(raw), raw);
+  assert.deepEqual(JSON.parse(redactSecrets(raw)), value);
 });
 
 test("a secret in a session title is masked", () => {
