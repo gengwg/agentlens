@@ -179,6 +179,7 @@ export function buildMcp() {
 }
 
 export function startMcpServer(port = 8791) {
+  const maxBodyBytes = 1_000_000;
   const server = createServer(async (req, res) => {
     if (req.method !== "POST" && req.method !== "GET" && req.method !== "DELETE") {
       res.writeHead(405).end();
@@ -194,7 +195,16 @@ export function startMcpServer(port = 8791) {
     let body: unknown;
     try {
       const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(chunk as Buffer);
+      let size = 0;
+      for await (const chunk of req) {
+        size += (chunk as Buffer).length;
+        if (size > maxBodyBytes) {
+          res.writeHead(413, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "request body too large" }));
+          return;
+        }
+        chunks.push(chunk as Buffer);
+      }
       body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
     } catch {
       res.writeHead(400, { "content-type": "application/json" });

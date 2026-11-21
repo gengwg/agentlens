@@ -111,8 +111,8 @@ export type Usage = {
 
 export const usageOf = (u: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }): Usage => {
   const out: Usage = { inputTokens: u.input ?? 0, outputTokens: u.output ?? 0 };
-  if (u.cacheRead) out.cacheReadTokens = u.cacheRead;
-  if (u.cacheWrite) out.cacheWriteTokens = u.cacheWrite;
+  if (u.cacheRead != null) out.cacheReadTokens = u.cacheRead;
+  if (u.cacheWrite != null) out.cacheWriteTokens = u.cacheWrite;
   return out;
 };
 // Flatten message content (string, or an array of blocks) to display text.

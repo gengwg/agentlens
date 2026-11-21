@@ -222,7 +222,9 @@ test("sweepStaleTurns closes idle running turns of local sources only", () => {
   sweepStaleTurns();
   const status = (id: string) => (db.prepare(`SELECT status, completed_at FROM turns WHERE id = ?`).get(id) as any);
   assert.deepEqual(status("st1"), { status: "done", completed_at: "2026-09-01T00:00:00Z" });
+  assert.ok(String(summary("s-stale-cc").updated_at) > "2026-09-01T00:00:00Z", "the ship cursor sees the turn-only update");
   assert.equal(status("st2").status, "running");
+  assert.equal(summary("s-stale-tf").updated_at, "2026-09-01T00:00:00Z");
   assert.equal(status("st3").status, "running");
 });
 

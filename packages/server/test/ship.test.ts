@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { db, seedSession, upsertEvent } from "./fixtures.ts";
+import { db, seedSession, sweepStaleTurns, upsertEvent } from "./fixtures.ts";
 
 process.env.AGENTLENS_HOST_NAME = "testbox";
-const { collect, redact } = await import("../src/ship.ts");
+const { collect, redact, shipOnce } = await import("../src/ship.ts");
 
 test("redact keeps shape and drops every piece of content", () => {
   const model = redact("model.message", {
@@ -82,6 +82,21 @@ test("collect resends a changed session's turns but only its new events", () => 
   assert.deepEqual(mine(b), ["testbox:new-1"], "only events written since the last pass");
 });
 
+test("collect resends a turn closed by the stale-turn sweep without a new event", () => {
+  seedSession("s-swept", {
+    source: "claude-code",
+    updated_at: "2020-01-01T00:00:00Z",
+    turns: [{ id: "t-swept", status: "running" }],
+  });
+  const first = collect("");
+  assert.equal(first.turns.find((t: any) => t.id === "testbox:t-swept")!.status, "running");
+
+  assert.ok(sweepStaleTurns() > 0);
+  const second = collect(first.watermark, first.seq);
+  assert.equal(second.turns.find((t: any) => t.id === "testbox:t-swept")!.status, "done");
+  assert.equal(second.events.filter((e: any) => e.session_id === "testbox:s-swept").length, 0);
+});
+
 test("collect re-ships an event rewritten in place, and one timestamped in the past", () => {
   seedSession("s-mut", {
     updated_at: "2026-09-04T00:00:10Z",
@@ -125,6 +140,27 @@ test("collect skips events whose session row does not exist yet", () => {
   const b = collect("2026-09-05T00:00:00Z", before.seq);
   assert.equal(b.events.length, 0);
   assert.ok(b.seq > before.seq, "the cursor still advances so one orphan cannot stall shipping");
+});
+
+test("ship sends the configured bearer on every post", async () => {
+  seedSession("s-ship-auth", { source: "claude-code", updated_at: new Date().toISOString() });
+  const originalFetch = globalThis.fetch;
+  const oldToken = process.env.AGENTLENS_TOKEN;
+  const calls: RequestInit[] = [];
+  globalThis.fetch = async (_input, init) => {
+    calls.push(init!);
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  };
+  process.env.AGENTLENS_TOKEN = "ship-test-token";
+  try {
+    await shipOnce("http://shared-auth.test", "shipped");
+    assert.ok(calls.length > 0);
+    for (const call of calls) assert.equal(new Headers(call.headers).get("authorization"), "Bearer ship-test-token");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldToken === undefined) delete process.env.AGENTLENS_TOKEN;
+    else process.env.AGENTLENS_TOKEN = oldToken;
+  }
 });
 
 test("a branch travels to the shared server, and can be held back", () => {

@@ -76,6 +76,25 @@ test("claude-code: maps a transcript into turns and events", () => {
   assert.equal(sessionTrace("cc-s1").events.length, 7);
 });
 
+test("claude-code: explicit zero cache usage is preserved", () => {
+  const zeroUsage = assistant("z2", 1, "mz1", { type: "text", text: "uncached" });
+  const recs = [
+    { ...user("z1", 0, "go"), sessionId: "cc-zero" },
+    {
+      ...zeroUsage,
+      sessionId: "cc-zero",
+      message: {
+        ...zeroUsage.message,
+        usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 5 },
+      },
+    },
+  ];
+  db.transaction(() => ingestRecords({ sessionId: "cc-zero", threadId: null }, recs, { offset: 0 }))();
+
+  const event = sessionTrace("cc-zero").events.find((e) => e.type === "model.message")!;
+  assert.deepEqual(event.raw.usage, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 });
+});
+
 test("claude-code: slash-command prompts become readable titles", () => {
   const recs = [
     { ...user("c1", 0, "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>PR 24</command-args>"), sessionId: "cc-s5" },

@@ -110,18 +110,42 @@ export function collect(
   };
 }
 
-// One session's history can be tens of thousands of events; send in chunks so
-// a first pass is not a single enormous request.
-const CHUNK = 5000;
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 async function post(url: string, body: unknown) {
+  const token = process.env.AGENTLENS_TOKEN;
   const res = await fetch(new URL("/api/ingest", url), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`);
   return res.json();
+}
+
+async function postRows(url: string, source: string, kind: "sessions" | "turns" | "events", rows: Row[]) {
+  const emptyBytes = Buffer.byteLength(JSON.stringify({ source, [kind]: [] }));
+  let batch: Row[] = [];
+  let bytes = emptyBytes;
+  const flush = async () => {
+    if (!batch.length) return;
+    await post(url, { source, [kind]: batch });
+    batch = [];
+    bytes = emptyBytes;
+  };
+
+  for (const row of rows) {
+    const rowBytes = Buffer.byteLength(JSON.stringify(row));
+    if (emptyBytes + rowBytes > MAX_BODY_BYTES)
+      throw new Error(`${kind} row ${String(row.id).slice(0, 200)} exceeds the 2 MiB ingest limit by itself`);
+    if (batch.length && bytes + rowBytes + 1 > MAX_BODY_BYTES) await flush();
+    batch.push(row);
+    bytes += rowBytes + (batch.length > 1 ? 1 : 0);
+  }
+  await flush();
 }
 
 export async function shipOnce(url: string, source: string) {
@@ -129,10 +153,11 @@ export async function shipOnce(url: string, source: string) {
   const cursor = getCursor<{ since: string; seq?: number }>("ship", key) ?? { since: "" };
   const { sessions, turns, events, watermark, seq } = collect(cursor.since, cursor.seq ?? 0);
   if (!sessions.length) return { sessions: 0, turns: 0, events: 0 };
-  // Sessions and turns first, so every event has somewhere to land.
-  await post(url, { source, sessions, turns, events: events.slice(0, CHUNK) });
-  for (let i = CHUNK; i < events.length; i += CHUNK)
-    await post(url, { source, events: events.slice(i, i + CHUNK) });
+  // Dependencies land first, and every request stays below the receiver's byte
+  // limit. A retry may resend committed batches, which same-source ingest accepts.
+  await postRows(url, source, "sessions", sessions);
+  await postRows(url, source, "turns", turns);
+  await postRows(url, source, "events", events);
   setCursor("ship", key, { since: watermark, seq });
   return { sessions: sessions.length, turns: turns.length, events: events.length };
 }
