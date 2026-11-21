@@ -4,7 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { app } from "./api.js";
+import { app, assertApiAccessConfigured } from "./api.js";
 import { backfillMain } from "./backfill.js";
 import { startCollector } from "./collector.js";
 import { activeMrWatches, refreshPrices } from "./db.js";
@@ -15,6 +15,7 @@ import { shipMain } from "./ship.js";
 import { detectSources } from "./sources/index.js";
 
 function serveMain() {
+  assertApiAccessConfigured();
   const port = Number(process.env.PORT ?? 8788);
   startCollector(detectSources());
   gitlabWatcher.resume(activeMrWatches());
@@ -42,12 +43,9 @@ function serveMain() {
     console.log("dashboard not built (npm run build -w packages/web); API only");
   }
 
-  // Loopback by default: the API serves full session traces and triggers
-  // investigations with no auth. AGENTLENS_HOST opens it to a trusted network
-  // (a tailnet); anyone who can reach it then sees everything.
+  // Loopback needs no token. A non-loopback bind requires AGENTLENS_TOKEN; the
+  // middleware checks it on API, metrics, dashboard, and live-tail requests.
   const host = process.env.AGENTLENS_HOST ?? "127.0.0.1";
-  if (host !== "127.0.0.1" && host !== "localhost")
-    console.log(`warning: listening on ${host} with no authentication`);
   const server = serve({ fetch: app.fetch, port, hostname: host }, () =>
     console.log(`agentlens on http://${host === "0.0.0.0" ? "localhost" : host}:${port}`),
   );

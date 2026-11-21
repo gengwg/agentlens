@@ -226,9 +226,18 @@ const sweepStmt = db.prepare(`
       SELECT id FROM sessions
       WHERE source != 'trueforge' AND strftime('%s','now') - strftime('%s', updated_at) > 1800
     )
+  RETURNING session_id
 `);
+const touchSweptSession = db.prepare(`UPDATE sessions SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`);
+const sweep = db.transaction(() => {
+  const swept = sweepStmt.all() as { session_id: string }[];
+  // The ship cursor follows sessions, not turns: closing a turn must make the
+  // session eligible for resend even when no event was written.
+  for (const sessionId of new Set(swept.map((t) => t.session_id))) touchSweptSession.run(sessionId);
+  return swept.length;
+});
 export function sweepStaleTurns() {
-  return sweepStmt.run().changes;
+  return sweep();
 }
 
 const upsertTurnStmt = db.prepare(`

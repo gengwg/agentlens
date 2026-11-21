@@ -117,7 +117,7 @@ test("TrueForge-only routes refuse when TrueForge is not connected", async () =>
     method: "POST",
     body: JSON.stringify({ tool_call_id: "x" }),
   });
-  assert.equal(approve.status, 503);
+  assert.equal(approve.status, 404, "a non-TrueForge session cannot be approved");
 });
 
 test("POST /api/ingest accepts normalized sessions, turns and events", async () => {
@@ -143,6 +143,92 @@ test("POST /api/ingest accepts normalized sessions, turns and events", async () 
   assert.equal((await post({ sessions: [{ id: "x" }] })).status, 400);
   assert.equal((await post({ source: "bad source!", sessions: [] })).status, 400);
   assert.equal((await post({ source: "ok", events: [{ id: "e", type: "x" }] })).status, 400);
+});
+
+test("POST /api/ingest preserves ownership while allowing same-source updates", async () => {
+  seedSession("owned-cc", {
+    source: "claude-code",
+    turns: [{ id: "owned-turn", status: "running" }],
+    events: [{ id: "owned-event", turn_id: "owned-turn", type: "model.message", raw: { content: "original" } }],
+  });
+  const post = (b: unknown) => app.request("/api/ingest", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(b),
+  });
+  const content = () => (db.prepare(`SELECT raw FROM events WHERE id = 'owned-event'`).get() as any).raw;
+
+  const foreign = await post({
+    source: "grok",
+    events: [{ id: "owned-event", session_id: "owned-cc", turn_id: "owned-turn", type: "model.message", raw: { content: "overwritten" } }],
+  });
+  assert.equal(foreign.status, 409);
+  assert.equal(JSON.parse(content()).content, "original");
+
+  const correction = await post({
+    source: "claude-code",
+    events: [{ id: "owned-event", session_id: "owned-cc", turn_id: "owned-turn", type: "model.message", raw: { content: "corrected" } }],
+  });
+  assert.equal(correction.status, 200);
+  assert.equal(JSON.parse(content()).content, "corrected");
+
+  const moved = await post({
+    source: "claude-code",
+    events: [{ id: "owned-event", session_id: "another-session", turn_id: "owned-turn", type: "model.message", raw: { content: "moved" } }],
+  });
+  assert.equal(moved.status, 409);
+  assert.equal(JSON.parse(content()).content, "corrected");
+
+  const closed = await post({
+    source: "grok",
+    sessions: [{ id: "grok-session" }],
+    turns: [{ id: "owned-turn", session_id: "grok-session", status: "done" }],
+  });
+  assert.equal(closed.status, 409);
+  assert.equal((db.prepare(`SELECT status FROM turns WHERE id = 'owned-turn'`).get() as any).status, "running");
+});
+
+test("POST /api/ingest rejects writes without an owning session, including existing orphans", async () => {
+  db.prepare(`INSERT INTO turns (id, session_id, status) VALUES ('orphan-turn', 'missing-owner', 'running')`).run();
+  db.prepare(`INSERT INTO events (id, session_id, turn_id, type, raw) VALUES ('orphan-event', 'missing-owner', 'orphan-turn', 'model.message', ?)`)
+    .run(JSON.stringify({ content: "original" }));
+  const post = (b: unknown) => app.request("/api/ingest", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(b),
+  });
+
+  const rewrite = await post({
+    source: "grok",
+    events: [{ id: "orphan-event", session_id: "missing-owner", turn_id: "orphan-turn", type: "model.message", raw: { content: "overwritten" } }],
+  });
+  assert.equal(rewrite.status, 400);
+  assert.equal(JSON.parse((db.prepare(`SELECT raw FROM events WHERE id = 'orphan-event'`).get() as any).raw).content, "original");
+
+  const close = await post({ source: "grok", turns: [{ id: "orphan-turn", session_id: "missing-owner", status: "done" }] });
+  assert.equal(close.status, 400);
+  assert.equal((db.prepare(`SELECT status FROM turns WHERE id = 'orphan-turn'`).get() as any).status, "running");
+
+  const create = await post({
+    source: "grok",
+    events: [{ id: "new-orphan", session_id: "missing-owner", turn_id: "orphan-turn", type: "model.message", raw: {} }],
+  });
+  assert.equal(create.status, 400);
+  assert.equal((db.prepare(`SELECT COUNT(*) n FROM events WHERE id = 'new-orphan'`).get() as any).n, 0);
+});
+
+test("POST /api/ingest bounds agent names and request bodies", async () => {
+  const post = (b: unknown) => app.request("/api/ingest", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(b),
+  });
+  const accepted = await post({ source: "grok", sessions: [{ id: "agent-cap", agent_name: "x".repeat(500) }] });
+  assert.equal(accepted.status, 200);
+  assert.equal((db.prepare(`SELECT agent_name FROM sessions WHERE id = 'agent-cap'`).get() as any).agent_name.length, 200);
+
+  const oversized = await post({ source: "grok", padding: "x".repeat(2 * 1024 * 1024) });
+  assert.equal(oversized.status, 413);
 });
 
 test("GET /api/sessions?sort=score puts the worst first", async () => {

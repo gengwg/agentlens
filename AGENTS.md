@@ -15,8 +15,9 @@ product documentation.
   affected consumers and adapter tests when changing an event or `raw` payload shape.
 - Transcripts and SQLite databases are sensitive even with write-time secret masking.
   Preserve the shared redaction/write boundaries and never commit real transcripts or
-  databases. The API and metrics endpoints have no authentication: keep the default
-  loopback binding, and use a shared/non-loopback server only on a private network.
+  databases. The API and metrics endpoints are unauthenticated only on the default
+  loopback binding. A non-loopback server requires `AGENTLENS_TOKEN`, checks Host
+  headers, and belongs on a private network; preserve those checks on every route.
 - Generate demo traffic only in a separate database, not the normal `agentlens.db`.
   For example, run `AGENTLENS_DB=demo.db npm run demo -w packages/server`, then start
   the server with the same `AGENTLENS_DB` to browse it. Tests use `:memory:`.

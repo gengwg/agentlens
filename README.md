@@ -115,6 +115,7 @@ them, group under the source name. The Cursor IDE's own chats (not the CLI)
 are not read.
 Other variables: `AGENTLENS_DB` (`agentlens.db`), `PORT` (`8788`), `MCP_PORT`
 (`8791`), `AGENTLENS_HOST` (`127.0.0.1`, see Shared server below),
+`AGENTLENS_TOKEN` (required when `AGENTLENS_HOST` is not loopback),
 `AGENTLENS_CORS_ORIGIN` (`http://localhost:5173`, only needed if you serve the
 dashboard from somewhere other than the Vite dev server).
 
@@ -205,7 +206,11 @@ curl -X POST localhost:8788/api/ingest -H 'content-type: application/json' -d '{
 }'
 ```
 
-Ids are yours and must be unique across sessions; resending is idempotent.
+Ids are yours and must be unique across sessions. A resend from the same source
+can replace its rows; an id owned by another source, or a turn or event id tied
+to another session, is rejected with `409`. Request bodies are limited to 2 MiB,
+and `agent_name` is capped at 200 characters. Turns and events need their
+session in the same request or already stored; orphan writes are rejected.
 `source` is 1-32 characters from letters, digits, `-`, `_`, `.`.
 Turn `status` is `running`, `done`, `error`, or `cancelled`. Event types the
 dashboard renders: `turn.created`, `model.message`, `tool.response`,
@@ -223,20 +228,22 @@ the sender, before anything crosses the network.
 On the server, listening on a private address (a tailnet, not the internet):
 
 ```
-AGENTLENS_HOST=100.x.y.z npx @gengwg/agentlens
+AGENTLENS_TOKEN=replace-with-a-long-random-token AGENTLENS_HOST=100.x.y.z npx @gengwg/agentlens
 ```
 
-On each machine, alongside the local AgentLens:
+On each machine, alongside the local AgentLens, with the same token:
 
 ```
-agentlens ship --to http://100.x.y.z:8788
+AGENTLENS_TOKEN=replace-with-a-long-random-token agentlens ship --to http://100.x.y.z:8788
 ```
 
 The shipper reads the local database that your own AgentLens fills, so keep
 that running (or point `AGENTLENS_DB` at its file). It sends every 60 seconds
 (`--interval`, or `--once` for a single pass), remembers what it already sent,
-and namespaces ids by hostname so two machines cannot collide. `--source`
-names the badge on the shared fleet, `shipped` by default.
+and namespaces ids by hostname so two machines cannot collide. Requests are
+batched by bytes in session, turn, then event order. A single metadata row over
+2 MiB is rejected without advancing the cursor. `--source` names the badge on
+the shared fleet, `shipped` by default.
 
 On the shared view the Agent column reads `machine/project` and the Title
 column shows a session id, because titles are first-prompt text and stay
@@ -245,9 +252,18 @@ can answer what ran on `release/2.4`; `AGENTLENS_SHIP_BRANCH=0` holds them back
 if a branch name says more about your work than you want shared. A shared trace has the full shape,
 turns, tool calls by name, token counts and timings, with empty message bodies.
 
-There is no authentication: anyone who can reach the port sees every shipped
-session and can post to it. Keep it on a private network, and remember the
-server also ingests its own local sessions unless you set `AGENTLENS_SOURCES`.
+A non-loopback server refuses to start without `AGENTLENS_TOKEN`. Every API,
+metrics, dashboard, and live-tail request then requires `Authorization: Bearer
+<token>`; the shipper reads the same variable and adds it automatically. Host
+headers must name loopback or the configured bind address. Keep the server on a
+private network even with the token, and remember that it also ingests its own
+local sessions unless you set `AGENTLENS_SOURCES`.
+
+The dashboard does not prompt for a token, and native `EventSource` cannot add
+one. To browse a shared dashboard, use a reverse proxy that adds the header to every
+request, including live-tail SSE, and preserves an allowed Host header. Direct
+clients can send the header themselves, for example `curl -H "Authorization:
+Bearer $AGENTLENS_TOKEN" http://100.x.y.z:8788/api/sessions`.
 
 ## Send it to Grafana
 
@@ -260,6 +276,15 @@ scrape_configs:
   - job_name: agentlens
     static_configs:
       - targets: ["localhost:8788"]
+```
+
+For a non-loopback target, add the bearer from a file readable only by
+Prometheus:
+
+```yaml
+    authorization:
+      type: Bearer
+      credentials_file: /path/to/agentlens-token
 ```
 
 Then import [`docs/grafana-dashboard.json`](docs/grafana-dashboard.json) and
@@ -294,8 +319,8 @@ table instead, as `{"model": {"input": 5, "output": 25, "cache_read": 0.5,
 network, reported cost still works and nothing else changes.
 
 `/metrics` carries agent and repository names, and no more: no prompts, no
-titles, no tool output. It has no authentication, like the rest of the API, so
-keep the port private.
+titles, no tool output. It is unauthenticated only on the default loopback
+bind; a shared bind requires the bearer described above.
 
 If you would rather send sessions somewhere else entirely, look at Grafana's
 [agento11y](https://github.com/grafana/agento11y) first. Its plugins forward

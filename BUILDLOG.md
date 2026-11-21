@@ -820,3 +820,25 @@ passing without running a check that was available. A talk at MCPCon 2026 on
 failure modes from 6,000 agent traces listed it among the process and
 self-assessment failures, and none of the existing codes fit; `wrong-premise` is a false belief
 about the environment, not a skipped check. Earlier reports keep their codes.
+
+## 2026-11-21 - Five review findings at the collector boundaries
+
+Explicit zero cache reads now survive `usageOf`, so uncached calls are priced while
+pre-split history stays unpriced. Ingest enforces source and id ownership without
+breaking same-source corrections, refuses orphan writes, caps names and bodies,
+and returns conflicts atomically. Shipper requests are byte-batched in dependency
+order; a single oversized row fails without moving the cursor. The stale-turn
+sweep touches its sessions so shippers see turn-only closes. Non-loopback API
+startup now requires a bearer token, Host headers are
+checked, approval is TrueForge-only, and MCP and ingest bodies have hard limits.
+Hono, its Node server, Zod, and the MCP SDK moved to patched releases; TrueForge
+stays pinned to the tested 0.1.3 client rather than floating to a new API.
+
+The compatibility surprise is the shared dashboard: its ordinary fetches and
+native `EventSource` cannot supply the new bearer themselves. The README therefore
+requires an authenticating reverse proxy for that mode instead of putting tokens
+in URLs or browser storage. Verification: 161 server tests, server typecheck,
+both production builds, real default and bearer-protected API/metrics/dashboard
+smokes, and an authenticated end-to-end HTTP ship pass.
+The runtime audit retains five transitive advisories, including the Express
+`proxy-addr` path that this Hono/node:http listener does not use.

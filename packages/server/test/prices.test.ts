@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { db, refreshPrices, seedSession, sessionSummaries } from "./fixtures.ts";
 
 const { flatten, priceFor } = await import("../src/prices.ts");
+const { usageOf } = await import("../src/sources/emit.ts");
 
 // The shape models.dev serves: providers, each with models carrying a cost block.
 const API = {
@@ -57,6 +58,24 @@ test("cost is estimated from tokens when the harness reports none", () => {
   const s = sessionSummaries().find((x: any) => x.id === "p-claude") as any;
   assert.equal(s.reported_cost_usd, 0, "Claude Code reports no cost");
   assert.equal(Number(s.estimated_cost_usd.toFixed(4)), 8);
+});
+
+test("explicit zero cache reads make an uncached call eligible for an estimate", () => {
+  seedSession("p-uncached", {
+    source: "claude-code",
+    events: [{
+      id: "p-uncached-1",
+      type: "model.message",
+      raw: {
+        model: "claude-opus-5",
+        usage: usageOf({ input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 }),
+      },
+    }],
+  });
+  refreshPrices((m: string) => priceFor(m, table));
+
+  const s = sessionSummaries().find((x: any) => x.id === "p-uncached") as any;
+  assert.equal(s.estimated_cost_usd, 5);
 });
 
 test("a harness that reports its own cost is never second-guessed", () => {

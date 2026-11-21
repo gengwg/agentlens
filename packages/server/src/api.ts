@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { agentSummaries, db, fleetTotals, sessionCount, sessionSource, sessionSummaries, sessionTrace } from "./db.js";
@@ -12,7 +13,37 @@ import { active } from "./sources/index.js";
 import { client, trueforgeOk } from "./sources/trueforge.js";
 import { launchInvestigation } from "./investigations.js";
 
+const isLoopback = (bind: string) => bind === "127.0.0.1" || bind === "localhost" || bind === "::1";
+const hostName = (host: string) => {
+  const value = host.trim().toLowerCase();
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    return end < 0 ? null : value.slice(1, end);
+  }
+  return value.split(":", 1)[0] || null;
+};
+
+export function assertApiAccessConfigured() {
+  const bind = process.env.AGENTLENS_HOST ?? "127.0.0.1";
+  if (!isLoopback(bind) && !process.env.AGENTLENS_TOKEN)
+    throw new Error("AGENTLENS_TOKEN is required when AGENTLENS_HOST is not loopback");
+}
+
 export const app = new Hono();
+app.use("*", async (c, next) => {
+  const bind = process.env.AGENTLENS_HOST ?? "127.0.0.1";
+  const allowedHosts = new Set(["127.0.0.1", "localhost", "::1", hostName(bind) ?? bind.toLowerCase()]);
+  const host = c.req.header("host");
+  if (host) {
+    const name = hostName(host);
+    if (!name || !allowedHosts.has(name)) return c.json({ error: "bad host" }, 403);
+  }
+  const token = process.env.AGENTLENS_TOKEN;
+  if (!isLoopback(bind) && (!token || c.req.header("authorization") !== `Bearer ${token}`))
+    return c.text("unauthorized", 401);
+  await next();
+});
+
 // Local demo tool: only the dashboard (and same-origin/non-browser clients,
 // which send no Origin) may call the API cross-origin.
 const ALLOWED_ORIGINS = (process.env.AGENTLENS_CORS_ORIGIN ?? "http://localhost:5173")
@@ -71,10 +102,25 @@ app.get("/metrics", (c) => c.text(renderMetrics(), 200, { "content-type": "text/
 app.get("/api/sessions/:id", (c) => c.json(sessionTrace(c.req.param("id"))));
 app.get("/api/sources", (c) => c.json(active.map((s) => ({ name: s.name, ...s.status() }))));
 
+class IngestConflict extends Error {}
+const eventSession = db.prepare(`SELECT session_id FROM events WHERE id = ?`);
+const turnOwner = db.prepare(`
+  SELECT t.session_id, s.source FROM turns t JOIN sessions s ON s.id = t.session_id WHERE t.id = ?
+`);
+
+function checkIngestSource(sessionId: string, source: string, id: string) {
+  const owner = sessionSource.get(sessionId) as { source: string } | undefined;
+  if (owner && owner.source !== source) throw new IngestConflict(`${id}: session belongs to ${owner.source}`);
+  return owner;
+}
+
 // Generic ingest for harnesses without a file adapter: any client posts
 // sessions, turns, and events already in the normalized vocabulary. Idempotent
-// by id, so shippers can resend. See README "Bring your own harness".
-app.post("/api/ingest", async (c) => {
+// by id within one source, so shippers can resend without rewriting others.
+app.post("/api/ingest", bodyLimit({
+  maxSize: 2 * 1024 * 1024,
+  onError: (c) => c.json({ error: "request body too large" }, 413),
+}), async (c) => {
   let body: any;
   try {
     body = await c.req.json();
@@ -91,26 +137,36 @@ app.post("/api/ingest", async (c) => {
   try {
     db.transaction(() => {
       for (const s of sessions) {
-        ensureSession({ id: s.id, source, agent_name: String(s.agent_name ?? source), title: s.title ?? null,
+        checkIngestSource(s.id, source, `session ${s.id}`);
+        ensureSession({ id: s.id, source, agent_name: String(s.agent_name ?? source).slice(0, 200), title: s.title ?? null,
           created_at: s.created_at ?? new Date().toISOString(), updated_at: s.updated_at,
           branch: typeof s.branch === "string" ? s.branch.slice(0, 200) : null });
         if (s.updated_at) touch(s.id, s.updated_at);
       }
       for (const t of turns) {
         if (typeof t.session_id !== "string") throw new Error(`turn ${t.id}: session_id is required`);
+        const existing = turnOwner.get(t.id) as { session_id: string; source: string } | undefined;
+        if (existing && existing.source !== source) throw new IngestConflict(`turn ${t.id}: session belongs to ${existing.source}`);
+        if (existing && existing.session_id !== t.session_id)
+          throw new IngestConflict(`turn ${t.id} already belongs to another session`);
+        if (!checkIngestSource(t.session_id, source, `turn ${t.id}`)) throw new Error(`turn ${t.id}: session not found`);
         openTurn(t.id, t.session_id, t.created_at ?? new Date().toISOString());
         if (t.status && t.status !== "running") closeTurn(t.id, String(t.status), t.completed_at ?? null, t.error ?? null);
       }
       for (const e of events) {
         if (typeof e.session_id !== "string" || typeof e.turn_id !== "string" || typeof e.type !== "string")
           throw new Error(`event ${e.id}: session_id, turn_id and type are required`);
+        const existing = eventSession.get(e.id) as { session_id: string } | undefined;
+        if (existing && existing.session_id !== e.session_id)
+          throw new IngestConflict(`event ${e.id} already belongs to another session`);
+        if (!checkIngestSource(e.session_id, source, `event ${e.id}`)) throw new Error(`event ${e.id}: session not found`);
         putEvent({ id: e.id, session_id: e.session_id, turn_id: e.turn_id, thread_id: e.thread_id ?? null, type: e.type,
           created_at: e.created_at ?? null, raw: e.raw ?? {} });
         if (e.created_at) touch(e.session_id, e.created_at);
       }
     })();
   } catch (err) {
-    return c.json({ error: (err as Error).message }, 400);
+    return c.json({ error: (err as Error).message }, err instanceof IngestConflict ? 409 : 400);
   }
   return c.json({ sessions: sessions.length, turns: turns.length, events: events.length });
 });
@@ -147,6 +203,7 @@ app.post("/api/investigate", async (c) => {
 
 // Approve or deny the investigator's pending tool call (human-in-the-loop gate).
 app.post("/api/sessions/:id/approve", async (c) => {
+  if (!isTrueforge(c.req.param("id"))) return c.json({ error: "approval is TrueForge-only" }, 404);
   if (!trueforgeOk()) return c.json({ error: "TrueForge not reachable" }, 503);
   let body: { tool_call_id?: string; thread_id?: string; allow?: boolean };
   try {
