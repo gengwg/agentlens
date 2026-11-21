@@ -117,6 +117,74 @@ test("error turns and token usage roll up per session", () => {
   assert.equal(s.subagents, 1);
 });
 
+test("sessionSummaries rolls up only the selected page without multiplying turns and events", () => {
+  seedSession("s-page-local-off", {
+    agent: "page-local",
+    updated_at: "2026-09-03T00:00:00Z",
+    turns: [{ id: "plo-t1", status: "error" }, { id: "plo-t2", status: "error" }],
+    events: [
+      { id: "plo-e1", type: "tool.response", raw: { content: "boom", error: true } },
+      { id: "plo-e2", type: "model.message", raw: { usage: { inputTokens: 999, outputTokens: 999 } } },
+    ],
+  });
+  seedSession("s-page-local-selected", {
+    agent: "page-local",
+    updated_at: "2026-09-04T00:00:00Z",
+    turns: [
+      { id: "pls-t1", status: "error", created_at: "2026-09-01T00:00:00Z", completed_at: "2026-09-01T00:00:30Z" },
+      { id: "pls-t2", status: "running", created_at: "2026-09-01T00:01:00Z" },
+      { id: "pls-t3", status: "done", created_at: "2026-09-01T00:02:00Z", completed_at: "2026-09-01T00:02:10Z", pending_actions: 2 },
+    ],
+    events: [
+      { id: "pls-e1", turn_id: "pls-t3", type: "model.message", raw: { usage: { inputTokens: 10, outputTokens: 4, cacheReadTokens: 5, cacheWriteTokens: 2 } } },
+      { id: "pls-e2", turn_id: "pls-t3", type: "tool.response", raw: { content: "boom", error: true } },
+      { id: "pls-e3", turn_id: "pls-t3", type: "tool.response", raw: { content: "Permission for this action was denied by the user", error: true } },
+      { id: "pls-e4", turn_id: "pls-t3", type: "thread.created" },
+      { id: "pls-e5", turn_id: "pls-t3", type: "turn.done", raw: { state: { metrics: { totalCostInUsd: 1.25 } } } },
+      { id: "pls-e6", turn_id: "pls-t3", type: "tool.approval_required", created_at: "2026-09-01T00:03:00Z" },
+    ],
+  });
+
+  const rows = sessionSummaries({ q: "page-local", limit: 1 });
+  assert.deepEqual(rows.map((s) => s.id), ["s-page-local-selected"]);
+  const s = rows[0];
+  assert.deepEqual({
+    turn_count: s.turn_count,
+    error_turns: s.error_turns,
+    running: s.running,
+    latest_turn_status: s.latest_turn_status,
+    pending_approvals: s.pending_approvals,
+    approval_since: s.approval_since,
+    tool_calls: s.tool_calls,
+    tool_errors: s.tool_errors,
+    tool_denials: s.tool_denials,
+    subagents: s.subagents,
+    input_tokens: s.input_tokens,
+    output_tokens: s.output_tokens,
+    total_seconds: s.total_seconds,
+    problem_score: s.problem_score,
+    reported_cost_usd: s.reported_cost_usd,
+    estimated_cost_usd: s.estimated_cost_usd,
+  }, {
+    turn_count: 3,
+    error_turns: 1,
+    running: 1,
+    latest_turn_status: "done",
+    pending_approvals: 2,
+    approval_since: "2026-09-01T00:03:00Z",
+    tool_calls: 2,
+    tool_errors: 1,
+    tool_denials: 1,
+    subagents: 1,
+    input_tokens: 17,
+    output_tokens: 4,
+    total_seconds: 40,
+    problem_score: 58,
+    reported_cost_usd: 1.25,
+    estimated_cost_usd: 0,
+  });
+});
+
 test("trace events sort by time with untimestamped events last", () => {
   seedSession("s-trace", {
     turns: [{ id: "t9" }],
@@ -270,6 +338,19 @@ test("problem_score ranks sessions by what looks wrong, not by recency", () => {
   assert.ok(byRecent.indexOf("s-quiet") < byRecent.indexOf("s-broken"), "newest first is unchanged");
 });
 
+test("score sorting computes scores before selecting a limited page", () => {
+  seedSession("s-score-page-clean", { agent: "score-page", updated_at: "2026-09-21T00:00:00Z" });
+  seedSession("s-score-page-bad", {
+    agent: "score-page",
+    updated_at: "2026-09-20T00:00:00Z",
+    turns: [{ id: "ssp-bad", status: "error" }],
+  });
+
+  const rows = sessionSummaries({ q: "score-page", sort: "score", limit: 1 });
+  assert.deepEqual(rows.map((s) => s.id), ["s-score-page-bad"]);
+  assert.equal(rows[0].problem_score, 50);
+});
+
 test("problem_score counts a stall, and ignores a declined tool", () => {
   seedSession("s-stalled", {
     turns: [{ id: "ss1", created_at: "2026-09-01T00:00:00Z", completed_at: "2026-09-01T00:20:00Z" }],
@@ -326,7 +407,12 @@ test("coding state uses the newest turn, current approvals and recent activity",
   assert.equal(summary("s-state-stale").coding_state, "stale");
 
   seedSession("s-state-empty");
-  assert.equal(summary("s-state-empty").coding_state, "unknown");
+  const empty = summary("s-state-empty");
+  assert.equal(empty.coding_state, "unknown");
+  assert.deepEqual(
+    [empty.turn_count, empty.error_turns, empty.tool_calls, empty.input_tokens, empty.output_tokens, empty.total_seconds],
+    [0, 0, 0, null, null, null],
+  );
 });
 
 test("the latest MR registration wins even when an older head updates later", () => {

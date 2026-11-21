@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 // Which branch a session was working on. Read from .git/HEAD rather than by
 // running git: no subprocess per session, and it works when git is absent.
@@ -8,8 +8,6 @@ import { dirname, join } from "node:path";
 // that outlives a checkout keeps the branch it started on, which is the honest
 // thing to store given the harness logs do not say when a checkout happened.
 
-const cache = new Map<string, string | null>();
-
 function headFile(dir: string): string | undefined {
   const dotGit = join(dir, ".git");
   if (!existsSync(dotGit)) return undefined;
@@ -17,7 +15,9 @@ function headFile(dir: string): string | undefined {
   if (statSync(dotGit).isFile()) {
     const m = readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)$/m);
     const target = m?.[1]?.trim();
-    return target && existsSync(join(target, "HEAD")) ? join(target, "HEAD") : undefined;
+    if (!target) return undefined;
+    const head = join(resolve(dir, target), "HEAD");
+    return existsSync(head) ? head : undefined;
   }
   const head = join(dotGit, "HEAD");
   return existsSync(head) ? head : undefined;
@@ -25,9 +25,6 @@ function headFile(dir: string): string | undefined {
 
 export function branchOf(cwd: string | null | undefined): string | null {
   if (!cwd) return null;
-  const hit = cache.get(cwd);
-  if (hit !== undefined) return hit;
-
   let branch: string | null = null;
   try {
     // The working directory is often a subdirectory of the repository.
@@ -48,6 +45,5 @@ export function branchOf(cwd: string | null | undefined): string | null {
   } catch {
     // Unreadable .git, a permission error, a race with a checkout: no branch.
   }
-  cache.set(cwd, branch);
   return branch;
 }

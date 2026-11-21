@@ -842,3 +842,29 @@ both production builds, real default and bearer-protected API/metrics/dashboard
 smokes, and an authenticated end-to-end HTTP ship pass.
 The runtime audit retains five transitive advisories, including the Express
 `proxy-addr` path that this Hono/node:http listener does not use.
+
+## 2026-11-21 - Sampled P2 follow-ups
+
+Branch reads no longer freeze a cwd's first HEAD, relative gitdirs resolve from
+the `.git` file, and OpenCode completion costs can be corrected in place. Private
+key masks stay inside their serialized JSON string, and incident report text is
+masked before hashing and storage. Session links are encoded and MR badges accept
+only HTTPS. GitHub Actions and the token-receiving OCR reusable workflow are
+pinned to reviewed commit SHAs; a separate production audit is advisory while
+known transitive findings remain.
+
+The fleet's recency index is joined by page-local turn and event rollups, with
+scores still computed before page selection. Traces mount the newest 200 events
+and prepend older slices on request, preserving scroll position and searching
+the full event set. Six web tests now run beside the server suite with no new
+test framework. Reported and estimated cost are now separate gauges,
+`agentlens_reported_cost_usd` and `agentlens_estimated_cost_usd`: review caught
+that a valid downward OpenCode correction is not a counter reset, so Grafana no
+longer applies `rate()` to either valuation.
+
+Verification: 170 server tests and 6 web tests, server typecheck, both production
+builds, workflow YAML parsing, and `git diff --check` pass. The recency query plan
+uses `idx_sessions_updated`. Both changed PromQL panels
+also execute against a Prometheus-compatible datasource; the combined-cost stat
+returned zero with both families absent, proving its fallback. External users of
+`agentlens_cost_usd_total` must migrate to the appropriate new gauge.

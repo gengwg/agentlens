@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS events (
   raw TEXT NOT NULL,
   seq INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
 CREATE INDEX IF NOT EXISTS idx_events_turn ON events(turn_id);
@@ -394,16 +395,47 @@ const TOKENS_IN = `COALESCE(json_extract(e.raw,'$.usage.inputTokens'),0)
   + COALESCE(json_extract(e.raw,'$.usage.cacheReadTokens'),0)
   + COALESCE(json_extract(e.raw,'$.usage.cacheWriteTokens'),0)`;
 
-// Per-session rollup: turn counts/status, duration, tokens, tool calls.
+// Select the page before rolling up turns and events. Separate rollups avoid
+// multiplying every turn by every event in the same session.
 export function sessionSummaries(opts: SessionQuery = {}): Record<string, unknown>[] {
   const w = where(opts);
+  const byScore = opts.sort === "score";
+  const order = byScore ? "problem_score DESC, s.updated_at DESC" : "s.updated_at DESC";
   const rows = db
     .prepare(
       `
+    WITH page AS (
+      SELECT s.id, s.source${byScore ? `, ${PROBLEM_SCORE} AS problem_score` : ""}
+      FROM sessions s
+      ${w.sql}
+      ORDER BY ${order}
+      ${opts.limit ? "LIMIT @limit" : ""}
+    ),
+    turn_rollup AS (
+      SELECT t.session_id,
+        COUNT(*) AS turn_count,
+        COUNT(CASE WHEN t.status = 'error' THEN 1 END) AS error_turns,
+        MAX(t.status = 'running') AS running,
+        SUM(CASE WHEN t.completed_at IS NOT NULL
+          THEN strftime('%s', t.completed_at) - strftime('%s', t.created_at) END) AS total_seconds
+      FROM turns t JOIN page p ON p.id = t.session_id
+      GROUP BY t.session_id
+    ),
+    event_rollup AS (
+      SELECT e.session_id,
+        COUNT(CASE WHEN e.type = 'tool.response' THEN 1 END) AS tool_calls,
+        COUNT(CASE WHEN ${TOOL_ERROR} THEN 1 END) AS tool_errors,
+        COUNT(CASE WHEN e.type = 'tool.response' AND ${DENIED} THEN 1 END) AS tool_denials,
+        COUNT(CASE WHEN e.type = 'thread.created' THEN 1 END) AS subagents,
+        SUM(CASE WHEN e.type = 'model.message' THEN ${TOKENS_IN} END) AS input_tokens,
+        SUM(CASE WHEN e.type = 'model.message' THEN json_extract(e.raw,'$.usage.outputTokens') END) AS output_tokens
+      FROM events e JOIN page s ON s.id = e.session_id
+      GROUP BY e.session_id
+    )
     SELECT s.*,
-      (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) AS turn_count,
-      (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id AND t.status = 'error') AS error_turns,
-      (SELECT MAX(t.status='running') FROM turns t WHERE t.session_id = s.id) AS running,
+      COALESCE(tr.turn_count, 0) AS turn_count,
+      COALESCE(tr.error_turns, 0) AS error_turns,
+      tr.running AS running,
       (SELECT t.status FROM turns t WHERE t.session_id = s.id ORDER BY t.created_at DESC, t.id DESC LIMIT 1) AS latest_turn_status,
       -- A turn paused on approval reports status 'done'; only the newest turn's
       -- pending actions are still actionable (a resolution creates a new turn).
@@ -412,20 +444,21 @@ export function sessionSummaries(opts: SessionQuery = {}): Record<string, unknow
        WHERE e.session_id = s.id AND e.type = 'tool.approval_required'
        AND e.turn_id = (SELECT t2.id FROM turns t2 WHERE t2.session_id = s.id AND t2.pending_actions > 0 ORDER BY t2.created_at DESC, t2.id DESC LIMIT 1)
        ORDER BY e.created_at ASC LIMIT 1) AS approval_since,
-      (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response') AS tool_calls,
-      (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND ${TOOL_ERROR}) AS tool_errors,
-      (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'tool.response' AND ${DENIED}) AS tool_denials,
-      (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.type = 'thread.created') AS subagents,
-      (SELECT SUM(${TOKENS_IN}) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS input_tokens,
-      (SELECT SUM(json_extract(e.raw,'$.usage.outputTokens')) FROM events e WHERE e.session_id = s.id AND e.type='model.message') AS output_tokens,
-      (SELECT SUM(strftime('%s', t.completed_at) - strftime('%s', t.created_at)) FROM turns t WHERE t.session_id = s.id AND t.completed_at IS NOT NULL) AS total_seconds,
-      ${PROBLEM_SCORE} AS problem_score,
+      COALESCE(er.tool_calls, 0) AS tool_calls,
+      COALESCE(er.tool_errors, 0) AS tool_errors,
+      COALESCE(er.tool_denials, 0) AS tool_denials,
+      COALESCE(er.subagents, 0) AS subagents,
+      er.input_tokens AS input_tokens,
+      er.output_tokens AS output_tokens,
+      tr.total_seconds AS total_seconds,
+      ${byScore ? "p.problem_score" : PROBLEM_SCORE} AS problem_score,
       ${REPORTED_COST} AS reported_cost_usd,
       COALESCE(${COMPUTED_COST}, 0) AS estimated_cost_usd
-    FROM sessions s
-    ${w.sql}
-    ORDER BY ${opts.sort === "score" ? "problem_score DESC, s.updated_at DESC" : "s.updated_at DESC"}
-    ${opts.limit ? "LIMIT @limit" : ""}
+    FROM page p
+    JOIN sessions s ON s.id = p.id
+    LEFT JOIN turn_rollup tr ON tr.session_id = s.id
+    LEFT JOIN event_rollup er ON er.session_id = s.id
+    ORDER BY ${order}
   `,
     )
     .all({ like: w.like, ...(opts.limit ? { limit: opts.limit } : {}) }) as Record<string, unknown>[];

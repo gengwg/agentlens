@@ -9,8 +9,8 @@ import { maskText, redactSecrets } from "./redact-secrets.js";
 //
 // Safe to run over everything, repeatedly: masking is idempotent. A mask
 // literal contains no pattern, so an already-masked row comes back byte for
-// byte, and every mask is plain ASCII, so rewriting a serialized event cannot
-// break its JSON.
+// byte. Masks need no JSON escaping, and private-key bodies stop at quotes,
+// so replacements stay within the serialized string where they started.
 //
 //   agentlens redact-history            what would change
 //   agentlens redact-history --apply    change it, after copying the database

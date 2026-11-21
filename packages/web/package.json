@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build"
+    "build": "tsc && vite build",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "react": "^19.1.0",

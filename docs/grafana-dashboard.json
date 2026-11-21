@@ -298,7 +298,7 @@
       "id": 5,
       "type": "stat",
       "title": "Cost",
-      "description": "What harnesses report (OpenCode, Roo Code) plus, for the ones that report nothing, tokens priced from models.dev. Only events carrying a cache-token split can be estimated, so early history is missing.",
+      "description": "Current harness-reported charges plus the estimated valuation of unreported token usage at the latest models.dev prices. Corrections or repricing can lower either gauge. Only events carrying a cache-token split can be estimated, so early history is missing.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -337,7 +337,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(agentlens_cost_usd_total{source=~\"$source\", agent=~\"$agent\"})",
+          "expr": "(sum(agentlens_reported_cost_usd{source=~\"$source\", agent=~\"$agent\"}) or vector(0)) + (sum(agentlens_estimated_cost_usd{source=~\"$source\", agent=~\"$agent\"}) or vector(0))",
           "instant": true
         }
       ]
@@ -671,7 +671,7 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "Cost per hour by agent",
+      "title": "Reported cost by agent",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -686,11 +686,11 @@
         "defaults": {
           "unit": "currencyUSD",
           "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60,
+            "drawStyle": "line",
+            "fillOpacity": 10,
             "showPoints": "never",
             "stacking": {
-              "mode": "normal"
+              "mode": "none"
             }
           }
         },
@@ -717,11 +717,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (agent) (rate(agentlens_cost_usd_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval])) * 3600",
+          "expr": "sum by (agent) (agentlens_reported_cost_usd{source=~\"$source\", agent=~\"$agent\"})",
           "legendFormat": "{{agent}}"
         }
       ],
-      "description": "Reported and estimated cost combined; a session is never both."
+      "description": "Current cost reported by harnesses. Corrections may move it in either direction, so no rate() is applied. Estimated cost is a separate gauge in the Cost stat."
     },
     {
       "id": 12,

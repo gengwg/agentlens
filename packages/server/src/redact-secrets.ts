@@ -32,7 +32,7 @@ const PATTERNS: Pattern[] = [
   { id: "openai-project-key", re: /\bsk-proj-[a-zA-Z0-9_-]{40,}/g },
   { id: "openai-svcacct-key", re: /\bsk-svcacct-[a-zA-Z0-9_-]{40,}/g },
   { id: "gcp-api-key", re: /\bAIza[A-Za-z0-9_-]{35}/g },
-  { id: "private-key", re: /-----BEGIN[A-Z ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z ]*PRIVATE KEY-----/g },
+  { id: "private-key", re: /-----BEGIN[A-Z ]*PRIVATE KEY-----[^"]*?-----END[A-Z ]*PRIVATE KEY-----/g },
   { id: "connection-string", re: /(?:postgres|mysql|mongodb|redis|amqp):\/\/[^ \t\n\f\r\xa0'"]+@[^ \t\n\f\r\xa0'"]+/g },
   { id: "bearer-token", re: /[Bb]earer[ \t\n\f\r\xa0]+[A-Za-z0-9_.\-~+/]{20,}={0,3}/g },
   { id: "slack-token", re: /\bxox[bporas]-[A-Za-z0-9-]{10,}/g },
@@ -56,10 +56,10 @@ export function redactSecrets(text: string): string {
   return out;
 }
 
-// Events are stored as a JSON string, and every pattern's mask is plain ASCII
-// with no quotes or backslashes, so masking the serialized form cannot break
-// the JSON. Doing it here rather than per field covers prompts, model output,
-// tool arguments and tool results in one pass.
+// Events are stored as JSON. Masks need no JSON escaping, and private-key
+// bodies stop at quotes so they cannot consume neighboring fields. Doing it
+// here rather than per field covers prompts, model output, tool arguments and
+// tool results in one pass.
 // For the text columns outside events.raw: session titles and turn errors.
 export function maskText<T extends string | null | undefined>(text: T): T {
   return (text && redactionEnabled() ? (redactSecrets(text) as T) : text);

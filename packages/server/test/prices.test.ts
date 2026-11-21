@@ -58,6 +58,13 @@ test("cost is estimated from tokens when the harness reports none", () => {
   const s = sessionSummaries().find((x: any) => x.id === "p-claude") as any;
   assert.equal(s.reported_cost_usd, 0, "Claude Code reports no cost");
   assert.equal(Number(s.estimated_cost_usd.toFixed(4)), 8);
+
+  refreshPrices((m: string) => {
+    const p = priceFor(m, table);
+    return p ? { input: p.input / 2, output: p.output / 2, cache_read: p.cache_read / 2, cache_write: p.cache_write / 2 } : undefined;
+  });
+  const repriced = sessionSummaries().find((x: any) => x.id === "p-claude") as any;
+  assert.equal(Number(repriced.estimated_cost_usd.toFixed(4)), 4, "the UI valuation follows current prices");
 });
 
 test("explicit zero cache reads make an uncached call eligible for an estimate", () => {
