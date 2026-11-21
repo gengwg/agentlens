@@ -345,7 +345,7 @@ How AgentLens uses TrueForge capabilities (filled in as built):
 
 | TrueForge capability | Where used |
 |---|---|
-| MCP tools | Investigator agent calls the AgentLens MCP server (list_problem_sessions, get_trace, get_metrics) |
+| MCP tools | Investigator calls list_problem_sessions, get_session_trace, get_fleet_metrics, list_tool_retries, export_trace_json, and publish_incident_report |
 | Subagents | Investigator fans out one subagent per suspect session |
 | Sandboxed code execution | Trace analysis scripts run in the sandbox |
 | Human approvals | Approval gate before the investigator publishes an incident report |

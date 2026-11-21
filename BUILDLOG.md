@@ -868,3 +868,17 @@ uses `idx_sessions_updated`. Both changed PromQL panels
 also execute against a Prometheus-compatible datasource; the combined-cost stat
 returned zero with both families absent, proving its fallback. External users of
 `agentlens_cost_usd_total` must migrate to the appropriate new gauge.
+
+## 2026-11-21 - Prepare 0.14.0
+
+The package version moves to 0.14.0 because two public contracts changed:
+non-loopback serving now requires a bearer-aware client or proxy, and the old
+combined cost metric is replaced by reported and estimated gauges. The published
+manifest now declares the existing Node 22+ requirement, and the harness map names
+the six MCP tools that actually exist rather than the earlier get_trace/get_metrics
+placeholders. The generated package README is refreshed by the normal build.
+
+Verification: 170 server tests and 6 web tests, server typecheck, the complete
+production build, and `npm pack --dry-run` pass. The dry run contains 35 files,
+including `dist/index.js` and the updated README, at 437,217 unpacked bytes. No
+publish or tag has been created.
