@@ -882,3 +882,25 @@ Verification: 170 server tests and 6 web tests, server typecheck, the complete
 production build, and `npm pack --dry-run` pass. The dry run contains 35 files,
 including `dist/index.js` and the updated README, at 437,217 unpacked bytes. No
 publish or tag has been created.
+
+## 2026-11-25 - Verify incident report evidence
+
+`publish_incident_report` now requires an `evidence` list: at least one quote per
+tagged session, 8 to 240 characters, optionally with the `snapshot_id` it was read
+from. Each quote is masked like the body, then must occur in that session's stored
+events, or in the pinned snapshot when one is cited, or the report is rejected with
+the failing items named. Verified quotes are appended to the report body. The idea
+comes from LiteLLM Lens, which drops a finding unless its quotes are literal
+substrings of the cited trace.
+
+Surprise: matching against string values alone refused 107 of 158 genuine
+tool-argument quotes cut from real Claude Code traces. The trace tools show
+arguments as JSON, so natural quotes include keys and the quote that wraps a
+stringified value. Matching each event's JSON text, modulo escapes and whitespace,
+accepts all 288 genuine quotes from 20 real suspect sessions, while 170 of 180
+quotes cited to the wrong session are refused; the other 10 really occur in both.
+
+Verification: 175 server tests and 6 web tests, server typecheck, and the complete
+production build pass. The end-to-end runs used a scratch database ingested from
+local transcripts and an MCP HTTP client; the investigator agent in TrueForge was
+not re-seeded or run.

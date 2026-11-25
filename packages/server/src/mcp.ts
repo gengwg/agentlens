@@ -21,6 +21,24 @@ export const FAILURE_CODES = {
 } as const;
 const codeEnum = z.enum(Object.keys(FAILURE_CODES) as [keyof typeof FAILURE_CODES]);
 
+// Quotes are copied out of JSON tool output, so compare modulo JSON escaping
+// (an escaped newline counts as a space) and runs of whitespace.
+const normalize = (s: string) => s.replace(/\\+[nrt]/g, " ").replace(/\\/g, "").replace(/\s+/g, " ").trim();
+
+// Each event of the session as normalized JSON text, from its pinned snapshot
+// when one is cited; undefined when the snapshot belongs to another session.
+// JSON text, not just string values: the trace tools show tool arguments as
+// JSON, so a quote can include keys and the quotes around a value.
+function traceTexts(sessionId: string, snapshotId?: string): string[] | undefined {
+  if (snapshotId !== undefined) {
+    const pinned = readSnapshot(snapshotId);
+    if (!pinned || pinned.session_id !== sessionId) return undefined;
+    return pinned.snapshot.events.map((e: any) => normalize(JSON.stringify(e.raw)));
+  }
+  const rows = db.prepare(`SELECT raw FROM events WHERE session_id = ?`).all(sessionId) as { raw: string }[];
+  return rows.map((r) => normalize(r.raw));
+}
+
 // MCP tools the investigator agent uses to inspect the fleet.
 export function buildMcp() {
   const mcp = new McpServer({ name: "agentlens", version: "0.1.0" });
@@ -138,28 +156,54 @@ export function buildMcp() {
         "Publish the final incident report to the AgentLens dashboard. This is a write action and requires human approval. " +
         "Pass investigation_id when the request supplies one; repeated publication is idempotent. " +
         "codes: one entry per failure seen, naming the session it happened in. " +
-        Object.entries(FAILURE_CODES).map(([k, v]) => `${k}: ${v}`).join("; ") + ".",
+        Object.entries(FAILURE_CODES).map(([k, v]) => `${k}: ${v}`).join("; ") + ". " +
+        "evidence: at least one quote per tagged session, copied exactly from that session's trace " +
+        "(message text, tool arguments or output, or an error), with the snapshot_id you read it from. " +
+        "Each quote is checked against the stored trace, and a report with a quote that is not there is rejected.",
       inputSchema: {
         title: z.string(),
         body: z.string(),
         codes: z.array(z.object({ session_id: z.string(), code: codeEnum })).min(1),
+        evidence: z
+          .array(z.object({ session_id: z.string(), quote: z.string().min(8).max(240), snapshot_id: z.string().min(1).optional() }))
+          .min(1),
         investigation_id: z.string().min(1).optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ title, body, codes, investigation_id }) => {
+    async ({ title, body, codes, evidence, investigation_id }) => {
       title = maskText(title);
       body = maskText(body);
       // Codes are counted per agent through their session, so a made-up id
       // would silently skew those counts.
       const known = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
-      const unknown = [...new Set(codes.map((c) => c.session_id))].filter((id) => !known.get(id));
+      const tagged = [...new Set(codes.map((c) => c.session_id))];
+      const unknown = tagged.filter((id) => !known.get(id));
       if (unknown.length) {
         return { isError: true, content: [{ type: "text", text: `Unknown session ids: ${unknown.join(", ")}` }] };
       }
       if (investigation_id && !investigationById(investigation_id)) {
         return { isError: true, content: [{ type: "text", text: "Unknown investigation_id." }] };
       }
+      // A failure tag must rest on text the trace really contains, so each
+      // tagged session needs a quote and every quote must be found where cited.
+      const quotes = evidence.map((e) => ({ ...e, quote: maskText(e.quote) }));
+      const uncited = tagged.filter((id) => !quotes.some((q) => q.session_id === id));
+      const traces = new Map<string, string[] | undefined>();
+      const notFound = quotes.filter((q) => {
+        const key = `${q.session_id}\0${q.snapshot_id ?? ""}`;
+        if (!traces.has(key)) traces.set(key, traceTexts(q.session_id, q.snapshot_id));
+        const needle = normalize(q.quote);
+        return !traces.get(key)?.some((s) => s.includes(needle));
+      });
+      if (uncited.length || notFound.length) {
+        const problems = [
+          ...uncited.map((id) => `no quote for tagged session ${id}`),
+          ...notFound.map((q) => `not found in ${q.session_id}${q.snapshot_id ? ` (snapshot ${q.snapshot_id})` : ""}: "${q.quote}"`),
+        ];
+        return { isError: true, content: [{ type: "text", text: `Evidence rejected; copy quotes exactly from the cited trace.\n${problems.join("\n")}` }] };
+      }
+      body += `\n\nEvidence (each quote found in the cited trace):\n${quotes.map((q) => `- ${q.session_id}: "${q.quote}"`).join("\n")}`;
       const canonicalCodes = [...new Set(codes.map((c) => `${c.session_id}\0${c.code}`))].sort();
       const contentKey = createHash("sha256").update(JSON.stringify({ title, body, codes: canonicalCodes })).digest("hex");
       const dedupeKey = investigation_id ? `investigation:${investigation_id}` : `content:${contentKey}`;

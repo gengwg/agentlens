@@ -37,7 +37,10 @@ they show the layout without anyone's transcripts.
   alone overstates them.
 - Investigator agent (a TrueForge agent) that triages failed or slow sessions
   using AgentLens MCP tools, parallel subagents, sandboxed analysis, and an
-  approval gate before publishing its incident report.
+  approval gate before publishing its incident report. Every session the report
+  tags needs a quote copied from its trace, and `publish_incident_report`
+  rejects the report unless each quote is found in the stored (or pinned)
+  trace, so a failure tag cannot rest on text the session never contained.
 
 ## Layout
 
@@ -131,8 +134,8 @@ that outlives a checkout keeps the branch it was first seen on; the logs do not
 record when a checkout happened, so anything else would be invention. It is deliberately **not** a `/metrics` label: branches are unbounded
 over time and would multiply every series by them.
 
-Secrets are masked before an event is stored; incident report titles and bodies
-use the same mask. A session records whatever
+Secrets are masked before an event is stored; incident report titles, bodies
+and evidence quotes use the same mask. A session records whatever
 crossed it - a key pasted into a prompt, a `printenv`, a `.env` read back by a
 tool - and `agentlens.db` is a file with no authentication in front of it, so a
 token in a transcript is a token at rest. The pattern table is the tier-1 set

@@ -62,7 +62,9 @@ Method:
 4. Synthesize one incident report (title, affected agents/sessions, root causes,
    recommended fixes) and publish it with publish_incident_report, passing the
    investigation_id from the user's request and tagging each session with the failure
-   codes that apply (listed in the tool description). Publishing requires human approval; wait for it.
+   codes that apply (listed in the tool description). For every tagged session, pass at
+   least one evidence quote copied exactly from its trace, with its snapshot_id; quotes
+   that are not in the trace are rejected. Publishing requires human approval; wait for it.
 Be terse and factual. Cite session and turn ids.`;
 
 async function main() {
