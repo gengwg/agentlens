@@ -194,7 +194,8 @@ export function buildMcp() {
         const key = `${q.session_id}\0${q.snapshot_id ?? ""}`;
         if (!traces.has(key)) traces.set(key, traceTexts(q.session_id, q.snapshot_id));
         const needle = normalize(q.quote);
-        return !traces.get(key)?.some((s) => s.includes(needle));
+        // Escapes and whitespace normalize away, and every text includes "".
+        return needle.length < 8 || !traces.get(key)?.some((s) => s.includes(needle));
       });
       if (uncited.length || notFound.length) {
         const problems = [
@@ -203,7 +204,9 @@ export function buildMcp() {
         ];
         return { isError: true, content: [{ type: "text", text: `Evidence rejected; copy quotes exactly from the cited trace.\n${problems.join("\n")}` }] };
       }
-      body += `\n\nEvidence (each quote found in the cited trace):\n${quotes.map((q) => `- ${q.session_id}: "${q.quote}"`).join("\n")}`;
+      // Sorted like the codes, so a retry that reorders its evidence still deduplicates.
+      const lines = [...new Set(quotes.map((q) => `- ${q.session_id}: "${q.quote}"`))].sort();
+      body += `\n\nEvidence (each quote found in the cited trace):\n${lines.join("\n")}`;
       const canonicalCodes = [...new Set(codes.map((c) => `${c.session_id}\0${c.code}`))].sort();
       const contentKey = createHash("sha256").update(JSON.stringify({ title, body, codes: canonicalCodes })).digest("hex");
       const dedupeKey = investigation_id ? `investigation:${investigation_id}` : `content:${contentKey}`;

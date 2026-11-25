@@ -280,3 +280,36 @@ test("publish_incident_report accepts a quote that spans a tool argument's key a
   const res = await publish(client, [{ session_id: "s-ev-objargs", code: "loop" }], undefined, [{ session_id: "s-ev-objargs", quote }]);
   assert.ok(!res.isError);
 });
+
+test("publish_incident_report rejects a quote that is only escapes or whitespace", async () => {
+  seedQuoted("s-ev-blank");
+  const client = await connect();
+  const before = reportCount();
+  const codes = [{ session_id: "s-ev-blank", code: "loop" }];
+  for (const quote of ["\\n\\n\\n\\n\\n\\n\\n\\n", "          ", "\\t\\t \\r\\r\\n  "]) {
+    assert.ok((await publish(client, codes, undefined, [{ session_id: "s-ev-blank", quote }])).isError, JSON.stringify(quote));
+  }
+  assert.equal(reportCount(), before);
+});
+
+test("publish_incident_report matches a backslash path quoted raw or JSON-escaped", async () => {
+  seedSession("s-ev-path", { events: [{ id: "e-ev-path", type: "tool.response", raw: { content: String.raw`opened C:\new\temp\log.txt for reading` } }] });
+  const client = await connect();
+  const codes = [{ session_id: "s-ev-path", code: "tool-error" }];
+  for (const quote of [String.raw`C:\new\temp\log.txt`, String.raw`C:\\new\\temp\\log.txt`]) {
+    const res = (await client.callTool({ name: "publish_incident_report", arguments: { title: "path", body: quote, codes, evidence: [{ session_id: "s-ev-path", quote }] } })) as any;
+    assert.ok(!res.isError, `${quote}: ${res.content?.[0]?.text}`);
+  }
+});
+
+test("publish_incident_report deduplicates a retry that lists the same evidence in another order", async () => {
+  seedSession("s-ev-order", { events: [{ id: "e-ev-order", type: "tool.response", raw: { content: "first distinct line here; second distinct line here" } }] });
+  const client = await connect();
+  const before = reportCount();
+  const codes = [{ session_id: "s-ev-order", code: "loop" }];
+  const a = { session_id: "s-ev-order", quote: "first distinct line here" };
+  const b = { session_id: "s-ev-order", quote: "second distinct line here" };
+  assert.ok(!(await publish(client, codes, undefined, [a, b])).isError);
+  assert.ok(!(await publish(client, codes, undefined, [b, a])).isError);
+  assert.equal(reportCount(), before + 1);
+});
